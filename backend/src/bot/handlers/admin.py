@@ -1,14 +1,15 @@
 import logging
-from datetime import date, datetime
+from datetime import datetime
+from aiogram.types import CallbackQuery
 
-from aiogram import F, Router, types
-from aiogram.filters import Command
+from aiogram import F, Router, types, Bot
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 
 from ...config import settings
 from ...services.cycle_service import CycleService
 from ...services.employee_service import EmployeeService
-from ...storage.models import Employee
+
 from ..keyboards.admin_keyboards import get_confirmation_keyboard
 from ..middlewares.auth import AdminAuthMiddleware
 from ..states.cycle_creation import CycleCreationFSM
@@ -22,7 +23,7 @@ router.message.middleware(AdminAuthMiddleware(settings.ADMIN_TELEGRAM_IDS))
 MAX_ACTIVE_CYCLES = 5
 
 
-@router.message(Command("new_cycle"))
+@router.message(Command("new_cycle"), StateFilter(None))
 async def cmd_new_cycle(
     message: types.Message,
     state: FSMContext,
@@ -54,8 +55,6 @@ async def cmd_new_cycle(
         reply_markup=get_employee_select_keyboard(employees, page=0)
     )
 
-
-from aiogram.types import CallbackQuery
 
 @router.callback_query(lambda c: c.data.startswith("emp_page:"), CycleCreationFSM.waiting_for_target_employee)
 async def paginate_employees(callback: CallbackQuery, state: FSMContext, employee_service: EmployeeService):
@@ -221,30 +220,39 @@ async def cancel_creation(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "confirm_creation", CycleCreationFSM.confirming_creation)
 async def confirm_creation(
-    callback: types.CallbackQuery, state: FSMContext, cycle_service: CycleService, employee_service: EmployeeService
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+    bot: Bot,
 ):
-    await callback.message.edit_text("Создаем цикл... ⏳")
-
-    data = await state.get_data()
-    target_employee_id = data.get("target_employee_id")
-    target_employee = employee_service.find_by_id(target_employee_id)
-    respondent_ids = data.get("respondents")
-    deadline = date.fromisoformat(data.get("deadline"))
+    await callback.message.edit_text("Создаем цикл... ")
 
     try:
+        # Create the feedback cycle
+        data = await state.get_data()
+        target_employee_id = data.get("target_employee_id")
+        respondent_ids = data.get("respondents")
+        deadline = data.get("deadline")
+        target_employee = employee_service.find_by_id(target_employee_id)
         cycle = await cycle_service.create_new_cycle(
             target_employee=target_employee,
             respondent_ids=respondent_ids,
             deadline=deadline,
         )
+        # After successful creation, distribute the survey links
+        await cycle_service.notify_respondents(
+            cycle=cycle,
+            employee_service=employee_service,
+            bot=bot,
+        )
         await callback.message.edit_text(
-            f"✅ Цикл <code>{cycle.id}</code> успешно создан!\n"
-            f"Респондентам будут отправлены приглашения."
+            f" Цикл <code>{cycle.id}</code> успешно создан и разослан респондентам."
         )
     except Exception as e:
         logger.error(f"Failed to create cycle: {e}", exc_info=True)
         await callback.message.edit_text(
-            "❌ Произошла ошибка при создании цикла. Попробуйте позже."
+            " Произошла ошибка при создании цикла. Попробуйте позже."
         )
     finally:
         await state.clear()

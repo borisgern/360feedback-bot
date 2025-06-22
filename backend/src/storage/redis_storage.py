@@ -1,4 +1,3 @@
-import json
 from typing import List, Optional, Set, Type, TypeVar
 
 from pydantic import BaseModel

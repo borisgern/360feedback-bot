@@ -142,6 +142,3 @@ class CycleService:
         """Deletes the set of pending notifications for an employee."""
         await self._redis.delete_key(f"pending_notifications:{employee_id}")
 
-    async def get_cycle_by_id(self, cycle_id: str) -> FeedbackCycle | None:
-        """Retrieves a feedback cycle by its ID."""
-        return await self._redis.get_model(f"cycle:{cycle_id}", FeedbackCycle)

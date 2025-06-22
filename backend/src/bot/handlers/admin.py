@@ -1,7 +1,12 @@
 from aiogram import Router, types
 from aiogram.filters import Command
 
+from ...config import settings
+from ..middlewares.auth import AdminAuthMiddleware
+
 router = Router()
+# Protect all handlers in this router with the admin auth middleware
+router.message.middleware(AdminAuthMiddleware(settings.ADMIN_TELEGRAM_IDS))
 
 # This router should be protected by the AdminAuthMiddleware
 

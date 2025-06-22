@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 
 from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio.client import Redis
@@ -22,7 +23,9 @@ async def main():
     )
 
     # Initialize Bot and Dispatcher
-    bot = Bot(token=settings.BOT_TOKEN, parse_mode="HTML")
+    bot = Bot(
+        token=settings.BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML")
+    )
 
     # Initialize Redis storage
     redis_client = Redis.from_url(settings.redis.dsn)
@@ -30,9 +33,6 @@ async def main():
     app_storage = RedisStorageService(redis_client=redis_client)
 
     dp = Dispatcher(storage=fsm_storage)
-
-    # Register middlewares
-    dp.message.middleware(AdminAuthMiddleware(settings.ADMIN_TELEGRAM_IDS))
 
     # Register routers
     dp.include_router(admin.router)

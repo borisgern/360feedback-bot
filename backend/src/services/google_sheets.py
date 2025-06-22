@@ -35,6 +35,7 @@ class GoogleSheetsService:
 
     @retry_strategy
     def _get_all_records_sync(self, sheet_name: str) -> List[Dict[str, Any]]:
+        """Synchronously fetches all records from a worksheet."""
         try:
             worksheet = self._spreadsheet.worksheet(sheet_name)
             return worksheet.get_all_records()
@@ -48,6 +49,14 @@ class GoogleSheetsService:
     async def get_all_records(self, sheet_name: str) -> List[Dict[str, Any]]:
         """Asynchronously fetches all records from a specified worksheet."""
         return await asyncio.to_thread(self._get_all_records_sync, sheet_name)
+
+    def _get_worksheet(self, worksheet_name: str) -> gspread.Worksheet:
+        """Synchronously gets a worksheet by its name."""
+        try:
+            return self._spreadsheet.worksheet(worksheet_name)
+        except WorksheetNotFound:
+            logger.error(f"Worksheet '{worksheet_name}' not found.")
+            raise
 
     @retry_strategy
     def _create_worksheet_sync(

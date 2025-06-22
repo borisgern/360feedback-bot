@@ -10,7 +10,7 @@ from .google_sheets import GoogleSheetsService
 logger = logging.getLogger(__name__)
 
 QUESTIONS_SHEET_NAME = "Questions"
-QUESTIONS_CACHE_KEY = "questionnaire"
+QUESTIONS_CACHE_KEY = "questionnaire_v2"
 QUESTIONS_CACHE_TTL_SECONDS = 3600  # 1 hour
 
 

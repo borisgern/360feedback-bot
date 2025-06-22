@@ -16,12 +16,9 @@ class RedisStorageService:
     def __init__(self, redis_client: Redis):
         self._redis = redis_client
 
-    async def set_model(
-        self, key: str, model: BaseModel, ttl: Optional[int] = None
-    ) -> None:
+    async def set_model(self, key: str, model: BaseModel, ttl: Optional[int] = None):
         """
-        Serializes a Pydantic model to JSON and stores it in Redis.
-
+        Stores a Pydantic model instance in Redis as a JSON string.
         :param key: The Redis key.
         :param model: The Pydantic model instance to store.
         :param ttl: Optional Time-To-Live for the key in seconds.
@@ -50,17 +47,17 @@ class RedisStorageService:
         members = await self._redis.smembers(key)
         return {member.decode('utf-8') for member in members}
 
-    async def get_model(self, key: str, model_class: Type[T]) -> T | None:
+    async def get_model(self, key: str, model_class: Type[T]) -> Optional[T]:
         """
-        Retrieves a Pydantic model from Redis by key.
-        :param key: The key to retrieve.
-        :param model_class: The Pydantic model class to validate against.
-        :return: An instance of the model class, or None if the key does not exist.
+        Gets a Pydantic model instance from Redis by key.
+        :param key: The Redis key.
+        :param model_class: The Pydantic model class to instantiate.
+        :return: The model instance or None if not found.
         """
         data = await self._redis.get(key)
-        if not data:
-            return None
-        return model_class.model_validate_json(data)
+        if data:
+            return model_class.model_validate_json(data)
+        return None
 
     async def get_keys_by_pattern(self, pattern: str) -> List[str]:
         """Returns a list of keys matching a pattern."""

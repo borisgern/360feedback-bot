@@ -51,6 +51,9 @@ async def main():
         questionnaire_service=questionnaire_service,
     )
 
+    # Load initial data
+    await employee_service.load_employees()
+
     dp = Dispatcher(
         storage=fsm_storage,
         # Pass services to handlers

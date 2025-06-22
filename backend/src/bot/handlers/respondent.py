@@ -1,14 +1,41 @@
 import logging
+from typing import List
 
 from aiogram import F, Router, types, Bot
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
 from ...services.cycle_service import CycleService
 from ...services.employee_service import EmployeeService
+from ...services.question_service import QuestionnaireService
+from ...storage.models import Question
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+class SurveyStates(StatesGroup):
+    in_survey = State()
+
+
+async def _send_question(message: types.Message, state: FSMContext):
+    """Sends the current question to the respondent."""
+    data = await state.get_data()
+    raw_questions = data.get("questions", [])
+    questions: List[Question] = [q if isinstance(q, Question) else Question.model_validate(q) for q in raw_questions]
+    current_question_index: int = data.get("current_question_index", 0)
+    target_name: str = data.get("target_employee_name", "коллеги")
+
+    if current_question_index < len(questions):
+        question = questions[current_question_index]
+        # TODO: Add support for different question UI types (keyboards, etc.)
+        await message.answer(question.text.format(Имя=target_name))
+    else:
+        # This case should ideally not be reached if the flow is correct
+        logger.error("Attempted to send question beyond questionnaire bounds.")
+        await message.answer("Опрос завершен. Спасибо!")
+        await state.clear()
 
 
 @router.message(CommandStart())
@@ -16,7 +43,6 @@ async def cmd_start(message: types.Message, employee_service: EmployeeService, c
     telegram_id = message.from_user.id
     logger.info(f"Received /start command from telegram_id: {telegram_id}")
 
-    telegram_id = message.from_user.id
     username = message.from_user.username
 
     if username:
@@ -59,21 +85,124 @@ async def cmd_start(message: types.Message, employee_service: EmployeeService, c
 
 
 @router.callback_query(F.data.startswith("start_survey:"))
-async def start_survey(callback: types.CallbackQuery, state: FSMContext):
+async def start_survey(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    questionnaire_service: QuestionnaireService,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+):
     """
-    Handles the 'Start Survey' button click.
-    Starts the questionnaire FSM.
+    Handles the 'Start Survey' button click, starting the questionnaire FSM.
     """
     _, cycle_id, respondent_id = callback.data.split(":")
+    logger.info(f"Starting survey for cycle_id={cycle_id}, respondent_id={respondent_id}")
 
-    # TODO: Implement Questionnaire FSM
-    # 1. Check if survey is already completed
-    # 2. Get questions from the service
-    # 3. Set initial state and store cycle/respondent info
-    # 4. Send the first question
+    cycle = await cycle_service.get_cycle_by_id(cycle_id)
+    if not cycle:
+        logger.error(f"Cannot start survey: cycle {cycle_id} not found.")
+        await callback.message.edit_text("Произошла ошибка: не удалось найти информацию о цикле опроса.")
+        await callback.answer()
+        return
 
-    await callback.message.edit_text(
-        f"Начинаем опрос (цикл: {cycle_id}, респондент: {respondent_id}).\n"
-        "\n(Здесь будет логика анкеты...)"
+    target_employee = employee_service.find_by_id(cycle.target_employee_id)
+    if not target_employee:
+        logger.error(f"Cannot start survey: target employee {cycle.target_employee_id} not found.")
+        await callback.message.edit_text("Произошла ошибка: не удалось найти сотрудника, о котором проводится опрос.")
+        await callback.answer()
+        return
+
+    questionnaire = await questionnaire_service.get_questionnaire()
+    if not questionnaire:
+        logger.error(f"Cannot start survey for cycle {cycle_id}: questionnaire is empty.")
+        await callback.message.edit_text("Не удалось загрузить анкету. Пожалуйста, попробуйте позже.")
+        await callback.answer()
+        return
+
+    # Convert Pydantic models to plain dicts so they can be stored in FSM JSON storage
+    serialized_questions = [q.model_dump(by_alias=True) for q in questionnaire]
+    await state.set_state(SurveyStates.in_survey)
+    await state.update_data(
+        cycle_id=cycle_id,
+        respondent_id=respondent_id,
+        questions=serialized_questions,
+        answers=[],
+        current_question_index=0,
+        target_employee_name=target_employee.first_name,
     )
+
+    await callback.message.edit_text("Начинаем опрос. Пожалуйста, отвечайте на вопросы развернуто.")
+    await _send_question(callback.message, state)
     await callback.answer()
+
+
+
+
+
+
+
+@router.message(SurveyStates.in_survey)
+async def process_answer(
+    message: types.Message,
+    state: FSMContext,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+):
+    """
+    Processes a respondent's answer, saves it, and sends the next question.
+    """
+    data = await state.get_data()
+    raw_questions = data.get("questions", [])
+    questions: List[Question] = [q if isinstance(q, Question) else Question.model_validate(q) for q in raw_questions]
+    current_question_index = data.get("current_question_index", 0)
+    answers = data.get("answers", [])
+
+    # Save the answer for the current question
+    current_question = questions[current_question_index]
+    answers.append({"question_id": current_question.id, "answer": message.text})
+    logger.info(f"Received answer for question '{current_question.id}'")
+
+    # Move to the next question
+    next_question_index = current_question_index + 1
+    await state.update_data(
+        answers=answers, current_question_index=next_question_index
+    )
+
+    if next_question_index < len(questions):
+        # Send the next question
+        await _send_question(message, state)
+    else:
+        # All questions answered, complete the survey
+        cycle_id = data.get("cycle_id")
+        respondent_id = data.get("respondent_id")
+        
+        # We need the full employee object to save answers correctly
+        respondent = employee_service.find_by_telegram_id(message.from_user.id)
+        if not respondent:
+            logger.warning(f"Could not find respondent by telegram_id {message.from_user.id}, falling back to respondent_id {respondent_id}")
+            respondent = employee_service.find_by_id(respondent_id)
+
+        if not respondent:
+            logger.error(f"Failed to save answers for cycle {cycle_id}: could not find respondent with id {respondent_id}.")
+            await message.answer("Произошла критическая ошибка: не удалось найти ваш профиль для сохранения ответов. Обратитесь к администратору.")
+            await state.clear()
+            return
+
+        logger.info(f"Completing survey for cycle {cycle_id} by respondent {respondent.id}.")
+
+        # Convert list of answers to a dictionary for saving
+        answers_dict = {item["question_id"]: item["answer"] for item in answers}
+
+        try:
+            await cycle_service.save_answers(
+                cycle_id=cycle_id,
+                respondent_id=respondent_id,
+                answers=answers_dict,
+                employee_service=employee_service,
+            )
+            await message.answer("✨ Спасибо за ваши ответы! Вы помогли коллеге стать лучше. ✨")
+        except Exception as e:
+            logger.error(f"Failed to save answers for cycle {cycle_id} for respondent {respondent.id}: {e}", exc_info=True)
+            await message.answer("Произошла ошибка при сохранении ваших ответов. Пожалуйста, свяжитесь с администратором.")
+        finally:
+            await state.clear()

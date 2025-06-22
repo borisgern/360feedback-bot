@@ -18,7 +18,7 @@ class Question(BaseModel):
         Accepts base types and normalizes variants like 'scale 0-3' to 'scale'.
         """
         v_lower = v.lower()
-        base_types = {"text", "checkbox", "textarea", "radio"}
+        base_types = {"text", "checkbox", "textarea", "radio", "choice"}
         if v_lower in base_types:
             return v_lower
         if v_lower.startswith("scale"):
@@ -34,7 +34,6 @@ class Employee(BaseModel):
     telegram_nickname: str = Field(alias="Telegram_Nickname")
     last_name: str = Field(alias="Last_Name")
     first_name: str = Field(alias="First_Name")
-
     telegram_id: Optional[int] = None
 
     @property

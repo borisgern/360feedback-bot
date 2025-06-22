@@ -1,11 +1,11 @@
 import logging
 
 from datetime import date, datetime
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 
-from ..storage.models import Employee, FeedbackCycle, RespondentInfo
+from ..storage.models import Employee, FeedbackCycle, RespondentInfo, Question
 from ..storage.redis_storage import RedisStorageService
 from .google_sheets import GoogleSheetsService
 from .question_service import QuestionnaireService
@@ -59,9 +59,7 @@ class CycleService:
         if not questions:
             # This can happen if the Questions sheet is empty or validation fails.
             raise ValueError("Could not retrieve questionnaire to create cycle.")
-        headers = ["cycle_id", "respondent_id", "submitted_at"] + [
-            q.id for q in questions
-        ]
+        headers = ["cycle_id", "respondent_id", "submitted_at"] + [q.result_column for q in questions if q.result_column]
         await self._g_sheets.create_worksheet(sheet_title, headers)
 
         logger.info(f"Successfully created feedback cycle {cycle_id}")
@@ -141,4 +139,36 @@ class CycleService:
     async def clear_pending_notifications(self, employee_id: str):
         """Deletes the set of pending notifications for an employee."""
         await self._redis.delete_key(f"pending_notifications:{employee_id}")
+
+    async def save_answers(
+        self,
+        cycle_id: str,
+        respondent_id: str,
+        answers: Dict[str, Any],
+        employee_service: EmployeeService,
+    ) -> None:
+        """Saves the respondent's answers to Google Sheets and updates the cycle status."""
+        cycle = await self.get_cycle_by_id(cycle_id)
+        if not cycle:
+            logger.error(f"Cannot save answers: Cycle {cycle_id} not found.")
+            return
+
+        target_employee = employee_service.find_by_id(cycle.target_employee_id)
+        if not target_employee:
+            logger.error(f"Cannot save answers: Target employee for cycle {cycle_id} not found.")
+            return
+
+        questions = await self._questionnaire.get_questionnaire()
+        if not questions:
+            logger.error(f"Cannot save answers: Questionnaire not found for cycle {cycle_id}.")
+            return
+
+        sheet_title = f"{cycle.created_at.strftime('%Y-%m-%d')}_{target_employee.full_name}"
+        row_data = [cycle_id, respondent_id, datetime.now().isoformat()] + [answers.get(q.id) for q in questions]
+        await self._g_sheets.append_row(sheet_title, row_data)
+
+        cycle.respondents[respondent_id].status = "completed"
+        cycle.respondents[respondent_id].completed_at = datetime.now()
+        await self._redis.set_model(f"cycle:{cycle.id}", cycle)
+        logger.info(f"Successfully saved answers for respondent {respondent_id} in cycle {cycle_id}.")
 

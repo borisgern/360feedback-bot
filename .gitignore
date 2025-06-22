@@ -17,3 +17,5 @@ dist/
 *.egg-info/
 
 *.log
+
+google_creds.json

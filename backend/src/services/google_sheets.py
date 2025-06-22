@@ -6,7 +6,7 @@ import gspread
 from gspread.exceptions import APIError, WorksheetNotFound
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from ..config import settings
+from config import settings
 
 logger = logging.getLogger(__name__)
 

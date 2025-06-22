@@ -30,15 +30,11 @@ class Questionnaire(BaseModel):
     questions: List[Question]
 
 
-class TokenData(BaseModel):
-    cycle_id: str
-    respondent_id: str
-
-
 class Employee(BaseModel):
     telegram_nickname: str = Field(alias="Telegram_Nickname")
     last_name: str = Field(alias="Last_Name")
     first_name: str = Field(alias="First_Name")
+
     telegram_id: Optional[int] = None
 
     @property
@@ -51,9 +47,10 @@ class Employee(BaseModel):
 
 
 class RespondentInfo(BaseModel):
+    """Information about a respondent in a feedback cycle."""
     id: str
     status: Literal["pending", "completed"] = "pending"
-    token: str
+    completed_at: Optional[datetime] = None
 
 
 class FeedbackCycle(BaseModel):

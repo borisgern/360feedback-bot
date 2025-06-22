@@ -1,0 +1,154 @@
+- id: T01
+  title: "Setup Docker Environment for Local Development"
+  epic: "Infra"
+  files:
+    - infra/Dockerfile
+    - infra/docker-compose.yml
+  est_h: 4
+  priority: "high"
+
+- id: T02
+  title: "Implement Configuration Service using Pydantic"
+  epic: "Backend"
+  files:
+    - backend/src/config.py
+    - .env.example
+  est_h: 2
+  priority: "high"
+
+- id: T03
+  title: "Implement Redis Storage Service for FSM and Caching"
+  epic: "Backend"
+  files:
+    - backend/src/storage/redis_storage.py
+    - backend/src/__main__.py
+  est_h: 4
+  priority: "high"
+
+- id: T04
+  title: "Implement Google Sheets Service with Retry Logic"
+  epic: "Backend"
+  files:
+    - backend/src/services/google_sheets.py
+  est_h: 8
+  priority: "high"
+
+- id: T05
+  title: "Implement and Integrate Admin Auth Middleware"
+  epic: "Backend"
+  files:
+    - backend/src/bot/middlewares/auth.py
+    - backend/src/__main__.py
+  est_h: 3
+  priority: "high"
+
+- id: T06
+  title: "Implement Dynamic Questionnaire Service"
+  epic: "Backend"
+  files:
+    - backend/src/services/question_service.py
+    - backend/src/storage/models.py
+  est_h: 4
+  priority: "medium"
+
+- id: T07
+  title: "Implement /new_cycle FSM for HR Admins"
+  epic: "Backend"
+  files:
+    - backend/src/bot/handlers/admin.py
+    - backend/src/bot/states/cycle_creation.py
+    - backend/src/services/cycle_service.py
+  est_h: 12
+  priority: "high"
+
+- id: T08
+  title: "Implement /cancel and /status Commands"
+  epic: "Backend"
+  files:
+    - backend/src/bot/handlers/admin.py
+  est_h: 4
+  priority: "medium"
+
+- id: T09
+  title: "Implement Respondent Start Token Handling"
+  epic: "Backend"
+  files:
+    - backend/src/bot/handlers/respondent.py
+  est_h: 4
+  priority: "high"
+
+- id: T10
+  title: "Implement Respondent Questionnaire FSM"
+  epic: "Backend"
+  files:
+    - backend/src/bot/handlers/respondent.py
+    - backend/src/bot/states/questionnaire.py
+  est_h: 12
+  priority: "high"
+
+- id: T11
+  title: "Implement Feedback Submission Logic"
+  epic: "Backend"
+  files:
+    - backend/src/bot/handlers/respondent.py
+    - backend/src/services/google_sheets.py
+  est_h: 4
+  priority: "high"
+
+- id: T12
+  title: "Setup Scheduler (APScheduler) for Background Jobs"
+  epic: "Backend"
+  files:
+    - backend/src/scheduler/jobs.py
+    - backend/src/__main__.py
+  est_h: 3
+  priority: "medium"
+
+- id: T13
+  title: "Implement Automated Reminders and Daily Summaries"
+  epic: "Backend"
+  files:
+    - backend/src/scheduler/jobs.py
+    - backend/src/services/report_service.py
+  est_h: 5
+  priority: "medium"
+
+- id: T14
+  title: "Implement Final Report Generation with GPT Integration"
+  epic: "Backend"
+  files:
+    - backend/src/services/report_service.py
+  est_h: 10
+  priority: "medium"
+
+- id: T15
+  title: "Setup Basic CI/CD Pipeline (GitHub Actions)"
+  epic: "CI"
+  files:
+    - .github/workflows/ci.yml
+  est_h: 6
+  priority: "medium"
+
+- id: T16
+  title: "Setup Test Framework (pytest) and Core Unit Tests"
+  epic: "Backend"
+  files:
+    - backend/tests/
+  est_h: 8
+  priority: "medium"
+
+- id: T17
+  title: "Create Initial Architecture Documents (ARCH-*.md)"
+  epic: "Docs"
+  files:
+    - architecture/
+  est_h: 4
+  priority: "low"
+
+- id: T18
+  title: "Setup Basic Terraform for Cloud Resources"
+  epic: "Infra"
+  files:
+    - infra/terraform/
+  est_h: 8
+  priority: "low"

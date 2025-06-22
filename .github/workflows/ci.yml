@@ -1,0 +1,40 @@
+# .github/workflows/ci.yml
+name: CI
+
+# Когда запускать workflow
+on:
+  # Все pull-request’ы, которые сливаются в main (основную стабильную ветку)
+  pull_request:
+    branches: [main]
+
+  # Пуши в рабочую ветку dev/shotgun (чтобы ловить ошибки до PR)
+  push:
+    branches: [dev/shotgun]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest    # GitHub-раннер
+
+    steps:
+      # 1. Клонируем репозиторий
+      - uses: actions/checkout@v4
+
+      # 2. Ставим Python 3.13
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # 3. Быстрый установщик Poetry (+кэширование)
+      - uses: abatilo/actions-poetry@v3
+
+      # 4. Ставим зависимости проекта (runtime + dev)
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root
+
+      # 5. Линтер Ruff
+      - name: Ruff lint
+        run: poetry run ruff check backend
+
+      # 6. Юнит-тесты Pytest
+      - name: Run tests
+        run: poetry run pytest -q

@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional, Type, TypeVar
+from typing import List, Optional, Set, Type, TypeVar
 
 from pydantic import BaseModel
 from redis.asyncio.client import Redis
@@ -28,6 +28,28 @@ class RedisStorageService:
         :param ttl: Optional Time-To-Live for the key in seconds.
         """
         await self._redis.set(key, model.model_dump_json(by_alias=True), ex=ttl)
+
+    async def delete_key(self, key: str) -> int:
+        """Deletes a key from Redis."""
+        return await self._redis.delete(key)
+
+    async def set_value(self, key: str, value: str, ttl: Optional[int] = None):
+        """Sets a simple string value in Redis."""
+        await self._redis.set(key, value, ex=ttl)
+
+    async def get(self, key: str) -> Optional[str]:
+        """Gets a simple string value from Redis."""
+        value = await self._redis.get(key)
+        return value.decode('utf-8') if value else None
+
+    async def add_to_set(self, key: str, value: str):
+        """Adds a value to a Redis set."""
+        await self._redis.sadd(key, value)
+
+    async def get_set(self, key: str) -> Set[str]:
+        """Gets all members of a Redis set."""
+        members = await self._redis.smembers(key)
+        return {member.decode('utf-8') for member in members}
 
     async def get_model(self, key: str, model_class: Type[T]) -> T | None:
         """

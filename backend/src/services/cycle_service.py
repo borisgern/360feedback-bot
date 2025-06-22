@@ -1,11 +1,15 @@
 import logging
-import uuid
-from datetime import date, datetime
 
-from ..storage.models import Employee, FeedbackCycle, RespondentInfo, TokenData
+from datetime import date, datetime
+from typing import Optional
+from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
+
+from ..storage.models import Employee, FeedbackCycle, RespondentInfo
 from ..storage.redis_storage import RedisStorageService
 from .google_sheets import GoogleSheetsService
 from .question_service import QuestionnaireService
+from .employee_service import EmployeeService
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +42,8 @@ class CycleService:
 
         respondents = {}
         for resp_id in respondent_ids:
-            token = str(uuid.uuid4())
-            respondents[resp_id] = RespondentInfo(id=resp_id, token=token)
-            # Store token -> user mapping for easy lookup on /start <token>
-            token_data = TokenData(cycle_id=cycle_id, respondent_id=resp_id)
-            await self._redis.set_model(f"token:{token}", token_data)
+            respondent_info = RespondentInfo(id=resp_id)
+            respondents[resp_id] = respondent_info
 
         cycle = FeedbackCycle(
             id=cycle_id,
@@ -65,3 +66,82 @@ class CycleService:
 
         logger.info(f"Successfully created feedback cycle {cycle_id}")
         return cycle
+
+    async def get_cycle_by_id(self, cycle_id: str) -> Optional[FeedbackCycle]:
+        """Retrieves a feedback cycle by its ID."""
+        logger.info(f"Retrieving cycle with id: {cycle_id}")
+        cycle = await self._redis.get_model(f"cycle:{cycle_id}", FeedbackCycle)
+        if not cycle:
+            logger.warning(f"Cycle with id {cycle_id} not found in Redis.")
+        return cycle
+
+    async def send_invitation(
+        self,
+        bot: Bot,
+        cycle: FeedbackCycle,
+        respondent: Employee,
+        target_employee: Employee
+    ):
+        """Generates and sends a survey invitation message with a 'Start Survey' button."""
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+        button_callback_data = f"start_survey:{cycle.id}:{respondent.id}"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Начать опрос", callback_data=button_callback_data)]
+        ])
+
+        message_text = (
+            f"Привет! 👋\n\n"
+            f"Приглашаем тебя принять участие в опросе 360° для коллеги <b>{target_employee.full_name}</b>.\n"
+            f"Твой фидбэк очень важен. Пожалуйста, пройди опрос до {cycle.deadline.strftime('%d.%m.%Y')}."
+        )
+        await bot.send_message(
+            chat_id=respondent.telegram_id,
+            text=message_text,
+            reply_markup=keyboard
+        )
+
+    async def notify_respondents(
+        self,
+        cycle: FeedbackCycle,
+        employee_service: EmployeeService,
+        bot: Bot,
+    ):
+        logger.info(f"Starting notification process for cycle {cycle.id}.")
+        target_employee = employee_service.find_by_id(cycle.target_employee_id)
+        if not target_employee:
+            logger.error(f"Cannot notify respondents for cycle {cycle.id}: Target employee not found.")
+            return
+
+        for resp_id in cycle.respondents:
+            respondent = employee_service.find_by_id(resp_id)
+            if respondent and respondent.telegram_id:
+                logger.info(f"Found respondent {respondent.id} with telegram_id {respondent.telegram_id}. Attempting to send invitation.")
+                try:
+                    await self.send_invitation(bot, cycle, respondent, target_employee)
+                    logger.info(f"Successfully sent invitation to {respondent.id}.")
+                except TelegramAPIError as e:
+                    logger.error(f"Failed to send invitation to {respondent.id} ({respondent.telegram_id}): {e}. Queuing notification.")
+                    await self.add_pending_notification(respondent.id, cycle.id)
+            elif respondent:
+                logger.info(f"Respondent {respondent.id} does not have a telegram_id. Queuing notification.")
+                await self.add_pending_notification(respondent.id, cycle.id)
+            else:
+                logger.warning(f"Respondent with ID {resp_id} not found. Skipping notification.")
+        logger.info(f"Finished notification process for cycle {cycle.id}.")
+
+    async def add_pending_notification(self, employee_id: str, cycle_id: str):
+        """Adds a cycle ID to the set of pending notifications for an employee."""
+        await self._redis.add_to_set(f"pending_notifications:{employee_id}", cycle_id)
+
+    async def get_pending_notifications(self, employee_id: str) -> set[str]:
+        """Retrieves the set of pending notification cycle IDs for an employee."""
+        return await self._redis.get_set(f"pending_notifications:{employee_id}")
+
+    async def clear_pending_notifications(self, employee_id: str):
+        """Deletes the set of pending notifications for an employee."""
+        await self._redis.delete_key(f"pending_notifications:{employee_id}")
+
+    async def get_cycle_by_id(self, cycle_id: str) -> FeedbackCycle | None:
+        """Retrieves a feedback cycle by its ID."""
+        return await self._redis.get_model(f"cycle:{cycle_id}", FeedbackCycle)

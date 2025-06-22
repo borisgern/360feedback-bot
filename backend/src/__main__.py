@@ -42,6 +42,7 @@ async def main():
         google_sheets_service=google_sheets_service,
     )
     employee_service = EmployeeService(
+        redis_service=app_storage,
         google_sheets_service=google_sheets_service
     )
     cycle_service = CycleService(

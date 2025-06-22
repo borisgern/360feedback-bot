@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Dict, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +8,10 @@ class Question(BaseModel):
     id: str
     text: str
     type: Literal["scale", "text"]
+
+
+class Questionnaire(BaseModel):
+    questions: List[Question]
 
 
 class Employee(BaseModel):

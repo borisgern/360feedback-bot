@@ -8,9 +8,10 @@ from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio.client import Redis
 
 from .bot.handlers import admin, respondent
-
 from .config import settings
-
+from .services.google_sheets import GoogleSheetsService
+from .services.question_service import QuestionnaireService
+from .storage.redis_storage import RedisStorageService
 
 
 async def main():
@@ -30,9 +31,22 @@ async def main():
     # Initialize Redis storage
     redis_client = Redis.from_url(settings.redis.dsn)
     fsm_storage = RedisStorage(redis=redis_client)
+    app_storage = RedisStorageService(redis_client=redis_client)
 
+    # Initialize services
+    google_sheets_service = GoogleSheetsService(config=settings.google)
+    questionnaire_service = QuestionnaireService(
+        redis_service=app_storage,
+        google_sheets_service=google_sheets_service,
+    )
 
-    dp = Dispatcher(storage=fsm_storage)
+    dp = Dispatcher(
+        storage=fsm_storage,
+        # Pass services to handlers
+        g_sheets=google_sheets_service,
+        app_storage=app_storage,
+        questionnaire_service=questionnaire_service,
+    )
 
     # Register routers
     dp.include_router(admin.router)

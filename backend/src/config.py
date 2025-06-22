@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class GoogleSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GOOGLE_")
 
-    SERVICE_ACCOUNT_KEY_PATH: str = "google_creds.json"
+    SERVICE_ACCOUNT_KEY_PATH: str = "/app/google_creds.json"
     SHEET_ID: str
 
 

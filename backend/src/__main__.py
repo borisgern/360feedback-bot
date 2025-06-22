@@ -9,6 +9,8 @@ from redis.asyncio.client import Redis
 
 from .bot.handlers import admin, respondent
 from .config import settings
+from .services.cycle_service import CycleService
+from .services.employee_service import EmployeeService
 from .services.google_sheets import GoogleSheetsService
 from .services.question_service import QuestionnaireService
 from .storage.redis_storage import RedisStorageService
@@ -39,6 +41,14 @@ async def main():
         redis_service=app_storage,
         google_sheets_service=google_sheets_service,
     )
+    employee_service = EmployeeService(
+        google_sheets_service=google_sheets_service
+    )
+    cycle_service = CycleService(
+        redis_service=app_storage,
+        google_sheets_service=google_sheets_service,
+        questionnaire_service=questionnaire_service,
+    )
 
     dp = Dispatcher(
         storage=fsm_storage,
@@ -46,6 +56,8 @@ async def main():
         g_sheets=google_sheets_service,
         app_storage=app_storage,
         questionnaire_service=questionnaire_service,
+        employee_service=employee_service,
+        cycle_service=cycle_service,
     )
 
     # Register routers

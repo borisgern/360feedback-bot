@@ -1,4 +1,5 @@
-from typing import Optional, Type, TypeVar
+import json
+from typing import List, Optional, Type, TypeVar
 
 from pydantic import BaseModel
 from redis.asyncio.client import Redis
@@ -26,17 +27,20 @@ class RedisStorageService:
         :param model: The Pydantic model instance to store.
         :param ttl: Optional Time-To-Live for the key in seconds.
         """
-        await self._redis.set(key, model.model_dump_json(), ex=ttl)
+        await self._redis.set(key, model.model_dump_json(by_alias=True), ex=ttl)
 
-    async def get_model(self, key: str, model_class: Type[T]) -> Optional[T]:
+    async def get_model(self, key: str, model_class: Type[T]) -> T | None:
         """
-        Retrieves a JSON string from Redis and deserializes it into a Pydantic model.
-
-        :param key: The Redis key.
-        :param model_class: The Pydantic model class to deserialize into.
+        Retrieves a Pydantic model from Redis by key.
+        :param key: The key to retrieve.
+        :param model_class: The Pydantic model class to validate against.
         :return: An instance of the model class, or None if the key does not exist.
         """
         data = await self._redis.get(key)
-        if data:
-            return model_class.model_validate_json(data)
-        return None
+        if not data:
+            return None
+        return model_class.model_validate_json(data)
+
+    async def get_keys_by_pattern(self, pattern: str) -> List[str]:
+        """Returns a list of keys matching a pattern."""
+        return [key.decode("utf-8") for key in await self._redis.keys(pattern)]

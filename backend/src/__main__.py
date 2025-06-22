@@ -8,7 +8,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio.client import Redis
 
 from .bot.handlers import admin, respondent
-from .bot.middlewares.auth import AdminAuthMiddleware
+
 from .config import settings
 from .storage.redis_storage import RedisStorageService
 
@@ -30,7 +30,7 @@ async def main():
     # Initialize Redis storage
     redis_client = Redis.from_url(settings.redis.dsn)
     fsm_storage = RedisStorage(redis=redis_client)
-    app_storage = RedisStorageService(redis_client=redis_client)
+
 
     dp = Dispatcher(storage=fsm_storage)
 

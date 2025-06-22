@@ -1,21 +1,21 @@
-FROM python:3.13-slim
+# ---- 1. Base image ----------------------------------------------------------
+    FROM python:3.13-slim
 
-# Set the working directory in the container
-WORKDIR /app
-
-# Install poetry
-RUN pip install poetry
-
-# Copy only the dependency files to leverage Docker layer caching
-COPY pyproject.toml poetry.lock* ./
-
-# Install project dependencies
-# --no-root: Do not install the project itself, as we will mount the source code
-# --no-dev: Do not install development dependencies
-RUN poetry install --no-root --no-dev
-
-# Copy the rest of the application code
-COPY ./backend/src ./src
-
-# Command to run the application
-CMD ["poetry", "run", "python", "-m", "src"]
+    # ---- 2. Set workdir ---------------------------------------------------------
+    WORKDIR /app
+    
+    # ---- 3. Install Poetry (latest 2.x) -----------------------------------------
+    RUN pip install --no-cache-dir poetry
+    
+    # ---- 4. Copy only dependency manifests first (layer caching) ---------------
+    COPY pyproject.toml poetry.lock* ./
+    
+    # ---- 5. Install ONLY production deps ----------------------------------------
+    RUN poetry install --only main --no-root --no-interaction
+    
+    # ---- 6. Copy the rest of the source code ------------------------------------
+    COPY backend ./backend
+    
+    # ---- 7. Default command ------------------------------------------------------
+    CMD ["poetry", "run", "python", "-m", "backend.src"]
+    

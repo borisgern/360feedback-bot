@@ -14,10 +14,8 @@ class AdminAuthMiddleware(BaseMiddleware):
         event: Message,
         data: Dict[str, Any],
     ) -> Any:
-        # This is a simplified example.
-        # In a real app, you'd apply this middleware only to admin handlers.
-        if event.from_user.id not in self.admin_ids:
-            # You can ignore the update or send a message.
-            # For admin commands, ignoring is often better.
+        if not event.from_user or event.from_user.id not in self.admin_ids:
+            # If the user is not an admin, we simply stop processing the event.
+            # The handler will not be called.
             return
         return await handler(event, data)

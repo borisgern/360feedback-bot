@@ -2,12 +2,18 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+
 from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio.client import Redis
 
 from .bot.handlers import admin, respondent
-from .bot.middlewares.auth import AdminAuthMiddleware
 from .config import settings
+from .services.cycle_service import CycleService
+from .services.employee_service import EmployeeService
+from .services.google_sheets import GoogleSheetsService
+from .services.question_service import QuestionnaireService
+from .storage.redis_storage import RedisStorageService
 
 
 async def main():
@@ -20,16 +26,40 @@ async def main():
     )
 
     # Initialize Bot and Dispatcher
-    bot = Bot(token=settings.BOT_TOKEN, parse_mode="HTML")
+    bot = Bot(
+        token=settings.BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML")
+    )
 
     # Initialize Redis storage
-    redis_client = Redis.from_url("redis://localhost:6379/0")
-    storage = RedisStorage(redis=redis_client)
+    redis_client = Redis.from_url(settings.redis.dsn)
+    fsm_storage = RedisStorage(redis=redis_client)
+    app_storage = RedisStorageService(redis_client=redis_client)
 
-    dp = Dispatcher(storage=storage)
+    # Initialize services
+    google_sheets_service = GoogleSheetsService(config=settings.google)
+    questionnaire_service = QuestionnaireService(
+        redis_service=app_storage,
+        google_sheets_service=google_sheets_service,
+    )
+    employee_service = EmployeeService(
+        redis_service=app_storage,
+        google_sheets_service=google_sheets_service
+    )
+    cycle_service = CycleService(
+        redis_service=app_storage,
+        google_sheets_service=google_sheets_service,
+        questionnaire_service=questionnaire_service,
+    )
 
-    # Register middlewares
-    dp.message.middleware(AdminAuthMiddleware(settings.ADMIN_TELEGRAM_IDS))
+    dp = Dispatcher(
+        storage=fsm_storage,
+        # Pass services to handlers
+        g_sheets=google_sheets_service,
+        app_storage=app_storage,
+        questionnaire_service=questionnaire_service,
+        employee_service=employee_service,
+        cycle_service=cycle_service,
+    )
 
     # Register routers
     dp.include_router(admin.router)
@@ -40,6 +70,7 @@ async def main():
         await dp.start_polling(bot)
     finally:
         await bot.session.close()
+        await redis_client.close()
 
 
 if __name__ == "__main__":

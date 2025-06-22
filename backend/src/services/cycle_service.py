@@ -1,11 +1,11 @@
 import logging
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 
-from ..storage.models import Employee, FeedbackCycle, RespondentInfo, Question
+from ..storage.models import Employee, FeedbackCycle, RespondentInfo
 from ..storage.redis_storage import RedisStorageService
 from .google_sheets import GoogleSheetsService
 from .question_service import QuestionnaireService

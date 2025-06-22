@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "360feedback-bot"
+version = "0.1.0"
+description = "Telegram bot for 360-degree feedback collection"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{include = "src", from = "backend"}]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+aiogram = "^3.7.0"
+pydantic = "^2.7.4"
+pydantic-settings = "^2.3.3"
+gspread = "^6.0.2"
+google-auth-oauthlib = "^1.2.0"
+redis = {version = "^5.0.5", extras = ["hiredis"]}
+apscheduler = "^3.10.4"
+tenacity = "^8.4.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

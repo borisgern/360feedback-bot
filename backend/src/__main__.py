@@ -10,7 +10,7 @@ from redis.asyncio.client import Redis
 from .bot.handlers import admin, respondent
 
 from .config import settings
-from .storage.redis_storage import RedisStorageService
+
 
 
 async def main():

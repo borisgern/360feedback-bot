@@ -9,7 +9,10 @@ services:
     env_file:
       - ../.env
     volumes:
+      # Mount source code for live reload
       - ../backend/src:/app/src
+      # Mount Google Cloud credentials as read-only
+      - ../google_creds.json:/app/google_creds.json:ro
     depends_on:
       - redis
 

@@ -277,6 +277,10 @@ async def confirm_checkbox_selection(
     temp_selections = data.get("temp_selections", {})
     current_q_selections = set(temp_selections.get(str(q_index), []))
 
+    if question.required and not current_q_selections:
+        await callback.answer("Необходимо выбрать хотя бы один вариант", show_alert=True)
+        return
+
     # Join selected options into a single string for the answer
     answer_string = ", ".join(sorted(list(current_q_selections)))
 

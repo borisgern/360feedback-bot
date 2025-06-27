@@ -71,7 +71,13 @@ class QuestionnaireService:
                 # Process required field
                 if "required" in rec:
                     if isinstance(rec["required"], str):
-                        rec["required"] = rec["required"].lower() in ["yes", "true", "да", "1"]
+                        req_val = rec["required"].strip().lower()
+                        rec["required"] = (
+                            req_val in ["yes", "true", "да", "1"]
+                            or req_val.startswith("да")
+                            or req_val.startswith("yes")
+                            or req_val.startswith("true")
+                        )
                     else:
                         rec["required"] = bool(rec["required"])
                 

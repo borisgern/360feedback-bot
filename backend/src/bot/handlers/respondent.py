@@ -30,13 +30,22 @@ async def _send_question(message: types.Message, state: FSMContext):
     if current_question_index < len(questions):
         question = questions[current_question_index]
         # Debugging
-        logger.info(f"Sending question {current_question_index}: id={question.id}, type={question.type}")
+        logger.info(
+            f"Sending question {current_question_index}: id={question.id}, type={question.type}"
+        )
         logger.info(f"Question options: {question.options}")
-        
+
         question_text_to_send = question.text.format(Имя=target_name)
 
         # Build appropriate keyboard based on question type
         keyboard = None
+        skip_row = None
+        if not question.required:
+            skip_row = [
+                types.InlineKeyboardButton(
+                    text="Пропустить", callback_data=f"skip:{current_question_index}"
+                )
+            ]
         # Check for scale type
         if question.type == "scale" or question.type.lower().startswith("scale"):
             logger.info(f"Creating scale keyboard for type: {question.type}")
@@ -45,9 +54,16 @@ async def _send_question(message: types.Message, state: FSMContext):
                 question_text_to_send += f"\n\n<i>{question.options[0]}</i>"
             # We assume scale 0-3. The button values are not from options.
             scale_values = ["0", "1", "2", "3"]
-            buttons = [types.InlineKeyboardButton(text=v, callback_data=f"ans:{current_question_index}:{v}") for v in scale_values]
-            # single row of buttons
-            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[buttons])
+            buttons = [
+                types.InlineKeyboardButton(
+                    text=v, callback_data=f"ans:{current_question_index}:{v}"
+                )
+                for v in scale_values
+            ]
+            rows = [buttons]
+            if skip_row:
+                rows.append(skip_row)
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
             logger.info(f"Scale keyboard created with values: {scale_values}")
         elif question.type == "checkbox" and question.options:
             logger.info("Creating checkbox keyboard")
@@ -58,7 +74,13 @@ async def _send_question(message: types.Message, state: FSMContext):
             for opt in question.options:
                 text = f"✅ {opt}" if opt in current_q_selections else opt
                 rows.append([types.InlineKeyboardButton(text=text, callback_data=f"cbox_tgl:{current_question_index}:{opt}")])
-            rows.append([types.InlineKeyboardButton(text="➡️ Далее", callback_data=f"cbox_next:{current_question_index}")])
+            rows.append([
+                types.InlineKeyboardButton(
+                    text="➡️ Далее", callback_data=f"cbox_next:{current_question_index}"
+                )
+            ])
+            if skip_row:
+                rows.append(skip_row)
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
         elif question.type == "radio" and question.options:
             logger.info("Creating radio keyboard")
@@ -66,12 +88,17 @@ async def _send_question(message: types.Message, state: FSMContext):
                 [types.InlineKeyboardButton(text=opt, callback_data=f"ans:{current_question_index}:{opt}")]
                 for opt in question.options
             ]
+            if skip_row:
+                rows.append(skip_row)
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
             logger.info(f"Radio keyboard created with options: {question.options}")
         else:
             logger.info(f"No keyboard created for question type '{question.type}' with options: {question.options}. Fallback to text input.")
         # For textarea / checkbox fallback to plain text input
-        
+
+        if not keyboard and skip_row:
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[skip_row])
+
         logger.info(f"Keyboard for question: {keyboard is not None}")
         await message.answer(question_text_to_send, reply_markup=keyboard)
     else:
@@ -274,6 +301,45 @@ async def confirm_checkbox_selection(
         # This logic is duplicated from other handlers. Refactor candidate.
         await _complete_survey(callback.message, state, cycle_service, employee_service, bot)
     
+    await callback.answer()
+
+
+@router.callback_query(SurveyStates.in_survey, F.data.startswith("skip:"))
+async def skip_optional_question(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+    bot: Bot,
+):
+    """Skips an optional question and moves to the next one."""
+    _, q_index_str = callback.data.split(":", 1)
+    q_index = int(q_index_str)
+
+    data = await state.get_data()
+    raw_questions = data.get("questions", [])
+    questions: List[Question] = [
+        q if isinstance(q, Question) else Question.model_validate(q) for q in raw_questions
+    ]
+    current_question_index = data.get("current_question_index", 0)
+
+    if q_index != current_question_index:
+        await callback.answer()
+        return
+
+    question = questions[q_index]
+    if question.required:
+        await callback.answer("Этот вопрос обязателен к заполнению", show_alert=True)
+        return
+
+    next_question_index = current_question_index + 1
+    await state.update_data(current_question_index=next_question_index)
+
+    if next_question_index < len(questions):
+        await _send_question(callback.message, state)
+    else:
+        await _complete_survey(callback.message, state, cycle_service, employee_service, bot)
+
     await callback.answer()
 
 @router.callback_query(SurveyStates.in_survey, F.data.startswith("ans:"))

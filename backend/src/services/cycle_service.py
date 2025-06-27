@@ -40,7 +40,8 @@ class CycleService:
         self, target_employee: Employee, respondent_ids: list[str], deadline: date
     ) -> FeedbackCycle:
         """Creates a new feedback cycle, stores it, and sets up the results sheet."""
-        cycle_id = f"{datetime.now().strftime('%Y%m%d')}_{target_employee.id}"
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        cycle_id = f"{timestamp}_{target_employee.id}"
 
         respondents = {}
         for resp_id in respondent_ids:
@@ -56,7 +57,7 @@ class CycleService:
 
         await self._redis.set_model(f"cycle:{cycle.id}", cycle)
 
-        sheet_title = f"{datetime.now().strftime('%Y-%m-%d')}_{target_employee.full_name}"
+        sheet_title = f"{timestamp}_{target_employee.full_name}"
         questions = await self._questionnaire.get_questionnaire()
         if not questions:
             # This can happen if the Questions sheet is empty or validation fails.
@@ -231,7 +232,8 @@ class CycleService:
             logger.error(f"Cannot save answers: Questionnaire not found for cycle {cycle_id}.")
             return
 
-        sheet_title = f"{cycle.created_at.strftime('%Y-%m-%d')}_{target_employee.full_name}"
+        sheet_timestamp = cycle.created_at.strftime('%Y%m%d_%H%M%S')
+        sheet_title = f"{sheet_timestamp}_{target_employee.full_name}"
         row_data = [cycle_id, respondent_id, datetime.now().isoformat()] + [answers.get(q.id) for q in questions]
         await self._g_sheets.append_row(sheet_title, row_data)
 

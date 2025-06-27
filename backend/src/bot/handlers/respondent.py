@@ -177,6 +177,7 @@ async def process_answer_cb(
     state: FSMContext,
     cycle_service: CycleService,
     employee_service: EmployeeService,
+    bot: Bot,
 ):
     """Handles answer coming from inline keyboard buttons."""
     try:
@@ -224,6 +225,7 @@ async def process_answer_cb(
                 respondent_id=respondent_id,
                 answers=answers_dict,
                 employee_service=employee_service,
+                bot=bot,
             )
             await callback.message.answer("✨ Спасибо за ваши ответы! ✨")
         except Exception as e:
@@ -240,6 +242,7 @@ async def process_answer(
     state: FSMContext,
     cycle_service: CycleService,
     employee_service: EmployeeService,
+    bot: Bot,
 ):
     """
     Processes a respondent's answer, saves it, and sends the next question.
@@ -300,6 +303,7 @@ async def process_answer(
                 respondent_id=respondent_id,
                 answers=answers_dict,
                 employee_service=employee_service,
+                bot=bot,
             )
             await message.answer("✨ Спасибо за ваши ответы! Вы помогли коллеге стать лучше. ✨")
         except Exception as e:

@@ -81,7 +81,7 @@ graph TD
 | `backend/src/services/` | Ядро бизнес-логики. |
 | `services/employee_service.py` | Логика получения данных о сотрудниках из Google Sheets по запросу. |
 | `services/question_service.py` | **(Новый)** Логика загрузки и кэширования вопросов анкеты из Google Sheets. |
-| `services/cycle_service.py` | Управление жизненным циклом опросов. |
+| `services/cycle_service.py` | бизнес-логика цикла + notify HR on progress     |
 | `services/report_service.py` | Генерация сводок и отчетов, включая взаимодействие с GPT. |
 | `services/google_sheets.py` | Низкоуровневая обертка для работы с Google Sheets API. |
 | `backend/src/storage/` | Модули для работы с Redis. |

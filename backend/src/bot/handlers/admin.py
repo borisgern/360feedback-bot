@@ -257,3 +257,36 @@ async def confirm_creation(
     finally:
         await state.clear()
         await callback.answer()
+
+
+@router.callback_query(F.data.startswith("finish_cycle:"))
+async def finish_cycle_from_notification(
+    callback: CallbackQuery,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+):
+    """Handler to close a cycle from a notification button."""
+    cycle_id = callback.data.split(":")[1]
+
+    cycle_before_close = await cycle_service.get_cycle_by_id(cycle_id)
+    if not cycle_before_close:
+        await callback.answer("Цикл не найден.", show_alert=True)
+        return
+
+    was_closed = await cycle_service.close_cycle(cycle_id)
+
+    target_employee = employee_service.find_by_id(cycle_before_close.target_employee_id)
+    target_name = target_employee.full_name if target_employee else "???"
+
+    if was_closed:
+        await callback.message.edit_text(
+            f"✅ Цикл для <b>{target_name}</b> завершен.",
+            reply_markup=None  # Remove keyboard
+        )
+        await callback.answer("Цикл успешно завершен.")
+    else:
+        # This can happen if another admin clicks the button almost simultaneously
+        await callback.message.edit_text(
+            f"ℹ️ Цикл для <b>{target_name}</b> уже был завершен.",
+            reply_markup=None) # Still remove keyboard
+        await callback.answer("Не удалось завершить: цикл уже был закрыт.", show_alert=True)

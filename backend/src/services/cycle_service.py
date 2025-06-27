@@ -3,9 +3,11 @@ import logging
 from datetime import date, datetime
 from typing import Any, Dict, Optional
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.exceptions import TelegramAPIError
 
 from ..storage.models import Employee, FeedbackCycle, RespondentInfo
+from ..config import settings
 from ..storage.redis_storage import RedisStorageService
 from .google_sheets import GoogleSheetsService
 from .question_service import QuestionnaireService
@@ -140,18 +142,85 @@ class CycleService:
         """Deletes the set of pending notifications for an employee."""
         await self._redis.delete_key(f"pending_notifications:{employee_id}")
 
+    async def close_cycle(self, cycle_id: str) -> bool:
+        """Closes an active cycle."""
+        cycle = await self.get_cycle_by_id(cycle_id)
+        if not cycle or cycle.status != "active":
+            logger.warning(f"Attempted to close non-active or non-existent cycle {cycle_id}")
+            return False
+
+        cycle.status = "closed"
+        await self._redis.set_model(f"cycle:{cycle.id}", cycle)
+        logger.info(f"Cycle {cycle_id} has been closed.")
+        # TODO: Trigger report generation in the future
+        return True
+
+    async def _notify_admin_on_progress(
+        self,
+        cycle: FeedbackCycle,
+        completed_respondent: Employee,
+        employee_service: EmployeeService,
+        bot: Bot,
+    ):
+        """Sends a progress update to all admins when a respondent completes a survey."""
+        target_employee = employee_service.find_by_id(cycle.target_employee_id)
+
+        completed_count = sum(1 for r in cycle.respondents.values() if r.status == "completed")
+        total_count = len(cycle.respondents)
+        progress_percent = int((completed_count / total_count) * 100)
+
+        remaining_respondents = [
+            employee_service.find_by_id(r.id)
+            for r in cycle.respondents.values()
+            if r.status == "pending"
+        ]
+        remaining_nicks = [f"@{emp.id}" for emp in remaining_respondents if emp]
+
+        message_text = (
+            f"<b>Цикл: {target_employee.full_name}</b> (<code>{cycle.id}</code>)\n"
+            f"Заполнил: {completed_respondent.full_name} ✅\n"
+            f"Прогресс: {completed_count} / {total_count} ({progress_percent}%)\n\n"
+        )
+        if remaining_nicks:
+            message_text += f"Осталось: {', '.join(remaining_nicks)}"
+        else:
+            message_text += "✨ Все респонденты заполнили анкеты!"
+
+        keyboard = None
+        if not remaining_nicks:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🟢 Завершить сейчас", callback_data=f"finish_cycle:{cycle.id}")]
+            ])
+
+        for admin_id in settings.ADMIN_TELEGRAM_IDS:
+            try:
+                await bot.send_message(
+                    chat_id=admin_id,
+                    text=message_text,
+                    reply_markup=keyboard,
+                )
+            except TelegramAPIError as e:
+                logger.error(f"Failed to send progress notification to admin {admin_id}: {e}")
+
     async def save_answers(
         self,
         cycle_id: str,
         respondent_id: str,
         answers: Dict[str, Any],
         employee_service: EmployeeService,
+        bot: Bot,
     ) -> None:
         """Saves the respondent's answers to Google Sheets and updates the cycle status."""
         cycle = await self.get_cycle_by_id(cycle_id)
         if not cycle:
             logger.error(f"Cannot save answers: Cycle {cycle_id} not found.")
             return
+
+        completed_respondent = employee_service.find_by_id(respondent_id)
+        if not completed_respondent:
+            # This is a critical error, should not happen if data is consistent
+            logger.error(f"Could not find completed respondent with id {respondent_id} in EmployeeService.")
+            # We proceed without notification, but the error is logged.
 
         target_employee = employee_service.find_by_id(cycle.target_employee_id)
         if not target_employee:
@@ -171,4 +240,7 @@ class CycleService:
         cycle.respondents[respondent_id].completed_at = datetime.now()
         await self._redis.set_model(f"cycle:{cycle.id}", cycle)
         logger.info(f"Successfully saved answers for respondent {respondent_id} in cycle {cycle_id}.")
+        
+        if completed_respondent:
+            await self._notify_admin_on_progress(cycle, completed_respondent, employee_service, bot)
 

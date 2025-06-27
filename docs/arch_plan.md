@@ -12,7 +12,10 @@
 Проект находится на стадии детализации требований. Исходным артефактом является `ТЗ` и ряд уточнений, которые конкретизируют следующие аспекты:
 *   **Авторизация HR:** Статический список Telegram ID в конфигурации.
 *   **Создание цикла:** Пошаговый ввод респондентов для удобства HR.
-*   **Анкета:** Вопросы загружаются динамически из специального листа Google Sheets.
+*   **Анкета:** Вопросы загружаются динамически из листа **`Questions`**  
+    с колонками:  
+    `question_id` • `question_type` • `question_text` • `options` • `required` • `sheet_column`.
+    Бот формирует UI, валидацию обязательности и привязку к колонкам по этим данным.
 *   **Генерация отчета:** GPT используется для суммаризации всех ответов на открытые вопросы "Сильные стороны" и "Точки роста".
 *   **Обработка ошибок:** Для API Google и OpenAI определены стратегии повторных запросов и fallback-механизмы.
 *   **Синхронизация данных:** Справочник сотрудников обновляется по требованию при запуске нового цикла.
@@ -141,7 +144,7 @@ graph TD
     *   **Estimated Effort:** L
     *   **Deliverable/Criteria for Completion:** Реализован FSM для анкеты. Бот **получает список вопросов из `question_service`** и динамически генерирует шаги диалога. Ответы сохраняются в черновик в Redis.
 *   **Task 3.3: Submission Logic**
-    *   **Deliverable/Criteria for Completion:** После нажатия "Отправить" данные записываются в Google Sheet. **В случае ошибки записи, бот уведомляет респондента и HR-админа о проблеме.**
+    *   **Deliverable/Criteria for Completion:** После нажатия "Отправить" данные записываются в Google Sheet. **В случае ошибки записи, бот уведомляет респондента и HR-администратора о проблеме.**
 
 #### Phase 4: Automation & Reporting
 *   **Objective(s):** Реализовать автоматические уведомления и генерацию отчетов с GPT-суммаризацией.
@@ -173,7 +176,10 @@ from typing import List, Optional, Dict, Literal
 class Question(BaseModel):
     id: str  # e.g., "q1", "strengths"
     text: str
-    type: Literal["scale", "text"]
+    type: Literal["scale 0-3", "checkbox", "radio", "textarea"]
+    options: list[str] | None = None   # для checkbox / radio
+    required: bool = False
+    sheet_column: str
 
 class FeedbackDraft(BaseModel):
     cycle_id: str
@@ -205,7 +211,11 @@ class FeedbackDraft(BaseModel):
     *   Итоговые отчеты, включая GPT-саммари, признаны информативными.
 
 ## 6. Assumptions Made
-*   Справочник сотрудников (`Employees`) и анкета (`Questions`) в Google Sheets поддерживаются в актуальном состоянии и в корректном формате.
+*   **Справочник сотрудников (`Employees`)**  
+    Обязательные колонки:  
+    `Telegram_Nickname` (`@username`) • `Last_Name` • `First_Name`  
+    `telegram_id` сохраняется ботом в Redis при первом контакте.  
+    Дополнительные поля (`Position`, `Email` и т. д.) допускаются и игнорируются сервисом.
 *   Компания готова предоставить и оплачивать доступ к OpenAI API.
 *   Все пользователи бота имеют аккаунты в Telegram.
 *   Для листа `Questions` будет согласован и задокументирован строгий формат колонок (например, `question_id`, `question_text`, `question_type`).

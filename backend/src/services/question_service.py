@@ -43,7 +43,42 @@ class QuestionnaireService:
             return None
 
         try:
-            questions = [Question.model_validate(rec) for rec in question_records]
+            processed_records = []
+            for rec in question_records:
+                # Process options field if it exists
+                if "options" in rec:
+                    options_str = rec["options"]
+                    # Handle empty options
+                    if not options_str or options_str == "":
+                        rec["options"] = []  # Empty list for no options
+                        logger.info(f"Empty options for question {rec.get('question_id')}, setting to empty list")
+                    # Process non-empty options
+                    elif isinstance(options_str, str):
+                        if ";" in options_str:
+                            rec["options"] = [opt.strip() for opt in options_str.split(";") if opt.strip()]
+                        elif "," in options_str:
+                            rec["options"] = [opt.strip() for opt in options_str.split(",") if opt.strip()]
+                        else:
+                            rec["options"] = [options_str.strip()]
+                        logger.info(f"Parsed options for question {rec.get('question_id')}: {rec['options']}")
+                    else:
+                        rec["options"] = []  # Fallback to empty list
+                        logger.info(f"Invalid options for question {rec.get('question_id')}, setting to empty list")
+                else:
+                    # If options field doesn't exist, set it to empty list
+                    rec["options"] = []
+                
+                # Process required field
+                if "required" in rec:
+                    if isinstance(rec["required"], str):
+                        rec["required"] = rec["required"].lower() in ["yes", "true", "да", "1"]
+                    else:
+                        rec["required"] = bool(rec["required"])
+                
+                processed_records.append(rec)
+                
+            logger.info(f"Processed question records: {processed_records}")
+            questions = [Question.model_validate(rec) for rec in processed_records]
             questionnaire = Questionnaire(questions=questions)
             await self._redis.set_model(
                 QUESTIONS_CACHE_KEY, questionnaire, ttl=QUESTIONS_CACHE_TTL_SECONDS

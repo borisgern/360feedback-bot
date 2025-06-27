@@ -8,22 +8,25 @@ class Question(BaseModel):
     id: str = Field(alias="question_id")
     text: str = Field(alias="question_text")
     type: str = Field(alias="question_type")
+    options: Optional[List[str]] = None  # For radio / checkbox
+    required: bool = Field(default=False)
     result_column: Optional[str] = Field(alias="sheet_column", default=None)
 
-    @field_validator("type")
-    @classmethod
-    def validate_type(cls, v: str) -> str:
-        """
-        Normalize and validate question type.
-        Accepts base types and normalizes variants like 'scale 0-3' to 'scale'.
-        """
-        v_lower = v.lower()
-        base_types = {"text", "checkbox", "textarea", "radio", "choice"}
-        if v_lower in base_types:
-            return v_lower
-        if v_lower.startswith("scale"):
-            return "scale"
-        raise ValueError(f"Unknown question type: {v}")
+    # We're not normalizing types anymore
+    # @field_validator("type")
+    # @classmethod
+    # def validate_type(cls, v: str) -> str:
+    #     """
+    #     Normalize and validate question type.
+    #     Accepts base types and normalizes variants like 'scale 0-3' to 'scale'.
+    #     """
+    #     v_lower = v.lower()
+    #     base_types = {"text", "checkbox", "textarea", "radio", "choice"}
+    #     if v_lower in base_types:
+    #         return v_lower
+    #     if v_lower.startswith("scale"):
+    #         return "scale"
+    #     raise ValueError(f"Unknown question type: {v}")
 
 
 class Questionnaire(BaseModel):

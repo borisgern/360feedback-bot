@@ -29,8 +29,40 @@ async def _send_question(message: types.Message, state: FSMContext):
 
     if current_question_index < len(questions):
         question = questions[current_question_index]
-        # TODO: Add support for different question UI types (keyboards, etc.)
-        await message.answer(question.text.format(Имя=target_name))
+        # Debugging
+        logger.info(f"Sending question {current_question_index}: id={question.id}, type={question.type}")
+        logger.info(f"Question options: {question.options}")
+        
+        question_text_to_send = question.text.format(Имя=target_name)
+
+        # Build appropriate keyboard based on question type
+        keyboard = None
+        # Check for scale type
+        if question.type == "scale" or question.type.lower().startswith("scale"):
+            logger.info(f"Creating scale keyboard for type: {question.type}")
+            if question.options and question.options[0]:
+                # The bot is initialized with HTML parse mode
+                question_text_to_send += f"\n\n<i>{question.options[0]}</i>"
+            # We assume scale 0-3. The button values are not from options.
+            scale_values = ["0", "1", "2", "3"]
+            buttons = [types.InlineKeyboardButton(text=v, callback_data=f"ans:{current_question_index}:{v}") for v in scale_values]
+            # single row of buttons
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[buttons])
+            logger.info(f"Scale keyboard created with values: {scale_values}")
+        elif (question.type == "radio" or question.type == "checkbox") and question.options:
+            logger.info("Creating radio keyboard")
+            rows = [
+                [types.InlineKeyboardButton(text=opt, callback_data=f"ans:{current_question_index}:{opt}")]
+                for opt in question.options
+            ]
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
+            logger.info(f"Radio keyboard created with options: {question.options}")
+        else:
+            logger.info(f"No keyboard created for question type '{question.type}' with options: {question.options}. Fallback to text input.")
+        # For textarea / checkbox fallback to plain text input
+        
+        logger.info(f"Keyboard for question: {keyboard is not None}")
+        await message.answer(question_text_to_send, reply_markup=keyboard)
     else:
         # This case should ideally not be reached if the flow is correct
         logger.error("Attempted to send question beyond questionnaire bounds.")
@@ -43,7 +75,10 @@ async def cmd_start(message: types.Message, employee_service: EmployeeService, c
     telegram_id = message.from_user.id
     logger.info(f"Received /start command from telegram_id: {telegram_id}")
 
+    telegram_id = message.from_user.id
     username = message.from_user.username
+
+    logger.info(f"/start command from user: id={telegram_id}, username='{username}'")
 
     if username:
         await employee_service.register_telegram_id(username, telegram_id)
@@ -136,9 +171,67 @@ async def start_survey(
     await callback.answer()
 
 
+@router.callback_query(SurveyStates.in_survey, F.data.startswith("ans:"))
+async def process_answer_cb(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+):
+    """Handles answer coming from inline keyboard buttons."""
+    try:
+        _, q_index_str, answer_val = callback.data.split(":", 2)
+        q_index = int(q_index_str)
+    except ValueError:
+        await callback.answer("Неверный формат ответа", show_alert=True)
+        return
 
+    data = await state.get_data()
+    raw_questions = data.get("questions", [])
+    questions: List[Question] = [q if isinstance(q, Question) else Question.model_validate(q) for q in raw_questions]
+    current_question_index = data.get("current_question_index", 0)
 
+    # Ignore if callback for other question
+    if q_index != current_question_index:
+        await callback.answer()
+        return
 
+    answers = data.get("answers", [])
+    current_question = questions[current_question_index]
+    answers.append({"question_id": current_question.id, "answer": answer_val})
+
+    # move on
+    next_question_index = current_question_index + 1
+    await state.update_data(answers=answers, current_question_index=next_question_index)
+
+    if next_question_index < len(questions):
+        await _send_question(callback.message, state)
+    else:
+        # same completion logic as text handler
+        cycle_id = data.get("cycle_id")
+        respondent_id = data.get("respondent_id")
+        respondent = employee_service.find_by_telegram_id(callback.from_user.id) or employee_service.find_by_id(respondent_id)
+        if not respondent:
+            logger.error("Failed to save answers: respondent not found")
+            await callback.message.answer("Ошибка при сохранении ответов. Обратитесь к администратору.")
+            await state.clear()
+            await callback.answer()
+            return
+        answers_dict = {item["question_id"]: item["answer"] for item in answers}
+        try:
+            await cycle_service.save_answers(
+                cycle_id=cycle_id,
+                respondent_id=respondent_id,
+                answers=answers_dict,
+                employee_service=employee_service,
+            )
+            await callback.message.answer("✨ Спасибо за ваши ответы! ✨")
+        except Exception as e:
+            logger.error(f"Failed to save answers: {e}")
+            await callback.message.answer("Ошибка при сохранении ответов.")
+        finally:
+            await state.clear()
+    await callback.answer()
 
 
 @router.message(SurveyStates.in_survey)
@@ -157,8 +250,16 @@ async def process_answer(
     current_question_index = data.get("current_question_index", 0)
     answers = data.get("answers", [])
 
-    # Save the answer for the current question
     current_question = questions[current_question_index]
+
+    # Only accept free-text for textarea questions
+    if current_question.type not in {"text", "textarea"}:
+        logger.warning(f"User sent text for a non-text question (type: {current_question.type}). Resending question.")
+        await message.answer("Для этого вопроса, пожалуйста, используйте кнопки. Попробую отправить его еще раз.")
+        await _send_question(message, state)
+        return
+
+    # Save the answer
     answers.append({"question_id": current_question.id, "answer": message.text})
     logger.info(f"Received answer for question '{current_question.id}'")
 

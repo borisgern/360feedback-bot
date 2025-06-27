@@ -55,6 +55,7 @@ class EmployeeService:
             emp.telegram_id: emp for emp in self._employees if emp.telegram_id
         }
         logger.info(f"Successfully loaded {len(self._employees)} employees.")
+        logger.debug(f"Employee map by ID keys: {list(self._employee_map_by_id.keys())}")
 
     def find_by_id(self, employee_id: str) -> Optional[Employee]:
         """Finds an employee by their ID from the loaded list."""
@@ -65,12 +66,19 @@ class EmployeeService:
 
     async def register_telegram_id(self, username: str, telegram_id: int):
         """Saves a user's telegram_id and updates the in-memory mapping."""
+        logger.info(f"Attempting to register telegram_id {telegram_id} for username '{username}'")
         employee = self.find_by_id(username)
-        if employee and employee.telegram_id != telegram_id:
-            employee.telegram_id = telegram_id
-            self._employee_map_by_telegram_id[telegram_id] = employee
-            await self._redis.set_value(f"employee_tg_id:{username}", str(telegram_id))
-            logger.info(f"Registered telegram_id {telegram_id} for user @{username}.")
+        if employee:
+            logger.info(f"Found employee {employee.id} for username '{username}'")
+            if employee.telegram_id != telegram_id:
+                employee.telegram_id = telegram_id
+                self._employee_map_by_telegram_id[telegram_id] = employee
+                await self._redis.set_value(f"employee_tg_id:{username}", str(telegram_id))
+                logger.info(f"Registered telegram_id {telegram_id} for user @{username}.")
+            else:
+                logger.info(f"Telegram ID {telegram_id} is already registered for user @{username}.")
+        else:
+            logger.warning(f"Could not find employee with id '{username}' to register telegram_id.")
 
     def find_by_telegram_id(self, telegram_id: int) -> Optional[Employee]:
         """Finds an employee by their Telegram ID from the loaded list."""

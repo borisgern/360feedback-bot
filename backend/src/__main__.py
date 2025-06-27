@@ -12,6 +12,7 @@ from .config import settings
 from .services.cycle_service import CycleService
 from .services.employee_service import EmployeeService
 from .services.google_sheets import GoogleSheetsService
+from .services.report_service import ReportService
 from .services.question_service import QuestionnaireService
 from .storage.redis_storage import RedisStorageService
 
@@ -50,6 +51,12 @@ async def main():
         google_sheets_service=google_sheets_service,
         questionnaire_service=questionnaire_service,
     )
+    report_service = ReportService(
+        g_sheets_service=google_sheets_service,
+        employee_service=employee_service,
+        questionnaire_service=questionnaire_service,
+        config=settings,
+    )
 
     # Load initial data
     await employee_service.load_employees()
@@ -62,6 +69,7 @@ async def main():
         questionnaire_service=questionnaire_service,
         employee_service=employee_service,
         cycle_service=cycle_service,
+        report_service=report_service,
     )
 
     # Register routers

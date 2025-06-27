@@ -1,6 +1,6 @@
 from typing import List
 
-from pydantic import Field, computed_field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class GoogleSettings(BaseSettings):
@@ -17,10 +17,16 @@ class RedisSettings(BaseSettings):
     port: int = 6379
     db: int = 0
 
-    @computed_field
     @property
     def dsn(self) -> str:
         return f"redis://{self.host}:{self.port}/{self.db}"
+
+
+class OpenAISettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="OPENAI_")
+
+    API_KEY: str
+    API_BASE: str | None = None
 
 
 class Settings(BaseSettings):
@@ -32,6 +38,7 @@ class Settings(BaseSettings):
     ADMIN_TELEGRAM_IDS: List[int] = Field(default_factory=list)
     redis: RedisSettings = RedisSettings()
     google: GoogleSettings = GoogleSettings()
+    openai: OpenAISettings = OpenAISettings()
 
 
 settings = Settings()

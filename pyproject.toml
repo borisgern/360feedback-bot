@@ -17,6 +17,7 @@ redis = {version = "^5.0.5", extras = ["hiredis"]}
 apscheduler = "^3.10.4"
 tenacity = "^8.4.1"
 python-dotenv = "^1.1.0"
+openai = "^1.92.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"

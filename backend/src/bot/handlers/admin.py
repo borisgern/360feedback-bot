@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from ...config import settings
 from ...services.cycle_service import CycleService
 from ...services.employee_service import EmployeeService
+from ...services.report_service import ReportService
 
 from ..keyboards.admin_keyboards import get_confirmation_keyboard
 from ..middlewares.auth import AdminAuthMiddleware
@@ -276,34 +277,63 @@ async def cmd_finish_cycle(message: types.Message, cycle_service: CycleService):
         await message.answer(f"⚠️ Не удалось завершить цикл <code>{cycle_id}</code>. Возможно, он неактивен или не существует.")
 
 
+@router.message(Command("finish"))
+async def cmd_finish_cycle(
+    message: types.Message,
+    cycle_service: CycleService,
+    report_service: ReportService,
+    bot: Bot,
+):
+    """Handler for the /finish <cycle_id> command."""
+    command_parts = message.text.split()
+    if len(command_parts) < 2:
+        await message.answer("Пожалуйста, укажите ID цикла. Использование: `/finish <ID_цикла>`")
+        return
+
+    cycle_id = command_parts[1]
+    cycle = await cycle_service.get_cycle_by_id(cycle_id)
+    if not cycle:
+        await message.answer(f"Цикл с ID <code>{cycle_id}</code> не найден.")
+        return
+
+    if cycle.status != 'active':
+        await message.answer(f"Цикл <code>{cycle_id}</code> уже был завершен или закрыт.")
+        return
+
+    await message.answer("Запрос принят. Генерация отчета может занять несколько минут...")
+
+    was_closed = await cycle_service.close_cycle(cycle_id)
+
+    if was_closed:
+        report = await report_service.generate_report_for_cycle(cycle)
+        await message.answer(report, disable_web_page_preview=True)
+    else:
+        await message.answer(f"⚠️ Не удалось завершить цикл <code>{cycle_id}</code>. Возможно, он уже был закрыт другим администратором.")
+
+
 @router.callback_query(F.data.startswith("finish_cycle:"))
 async def finish_cycle_from_notification(
     callback: CallbackQuery,
     cycle_service: CycleService,
-    employee_service: EmployeeService,
+    report_service: ReportService,
+    bot: Bot,
 ):
-    """Handler to close a cycle from a notification button."""
+    """Handler to close a cycle from a notification button.""" 
     cycle_id = callback.data.split(":")[1]
-
-    cycle_before_close = await cycle_service.get_cycle_by_id(cycle_id)
-    if not cycle_before_close:
-        await callback.answer("Цикл не найден.", show_alert=True)
+    cycle = await cycle_service.get_cycle_by_id(cycle_id)
+    if not cycle:
+        await callback.answer("Цикл не найден или уже обработан.", show_alert=True)
+        await callback.message.delete()  # Clean up the message
         return
+
+    await callback.message.edit_text(f"Генерация отчета для цикла <code>{cycle.id}</code>...", reply_markup=None)
 
     was_closed = await cycle_service.close_cycle(cycle_id)
 
-    target_employee = employee_service.find_by_id(cycle_before_close.target_employee_id)
-    target_name = target_employee.full_name if target_employee else "???"
-
     if was_closed:
-        await callback.message.edit_text(
-            f"✅ Цикл для <b>{target_name}</b> завершен.",
-            reply_markup=None  # Remove keyboard
-        )
-        await callback.answer("Цикл успешно завершен.")
+        report = await report_service.generate_report_for_cycle(cycle)
+        await bot.send_message(callback.from_user.id, report, disable_web_page_preview=True)
+        await callback.answer("Отчет готов и отправлен вам в новом сообщении.")
     else:
-        # This can happen if another admin clicks the button almost simultaneously
-        await callback.message.edit_text(
-            f"ℹ️ Цикл для <b>{target_name}</b> уже был завершен.",
-            reply_markup=None) # Still remove keyboard
-        await callback.answer("Не удалось завершить: цикл уже был закрыт.", show_alert=True)
+        await callback.message.edit_text(f"ℹ️ Цикл <code>{cycle.id}</code> уже был завершен.", reply_markup=None)
+        await callback.answer("Цикл уже был закрыт.", show_alert=True)

@@ -1,11 +1,11 @@
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 
 import openai
 from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 
 from ..config import Settings
-from ..storage.models import FeedbackCycle, Question
+from ..storage.models import FeedbackCycle
 from .google_sheets import GoogleSheetsService
 from .employee_service import EmployeeService
 from .question_service import QuestionnaireService

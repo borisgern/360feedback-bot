@@ -259,6 +259,23 @@ async def confirm_creation(
         await callback.answer()
 
 
+@router.message(Command("finish"))
+async def cmd_finish_cycle(message: types.Message, cycle_service: CycleService):
+    """Handler for the /finish <cycle_id> command."""
+    command_parts = message.text.split()
+    if len(command_parts) < 2:
+        await message.answer("Пожалуйста, укажите ID цикла. Использование: `/finish <ID_цикла>`")
+        return
+
+    cycle_id = command_parts[1]
+    was_closed = await cycle_service.close_cycle(cycle_id)
+
+    if was_closed:
+        await message.answer(f"✅ Цикл <code>{cycle_id}</code> успешно завершен.")
+    else:
+        await message.answer(f"⚠️ Не удалось завершить цикл <code>{cycle_id}</code>. Возможно, он неактивен или не существует.")
+
+
 @router.callback_query(F.data.startswith("finish_cycle:"))
 async def finish_cycle_from_notification(
     callback: CallbackQuery,

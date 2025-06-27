@@ -186,11 +186,10 @@ class CycleService:
         else:
             message_text += "✨ Все респонденты заполнили анкеты!"
 
-        keyboard = None
-        if not remaining_nicks:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🟢 Завершить сейчас", callback_data=f"finish_cycle:{cycle.id}")]
-            ])
+        # The button is now displayed if at least one respondent has completed the survey
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🟢 Завершить сейчас", callback_data=f"finish_cycle:{cycle.id}")]
+        ])
 
         for admin_id in settings.ADMIN_TELEGRAM_IDS:
             try:

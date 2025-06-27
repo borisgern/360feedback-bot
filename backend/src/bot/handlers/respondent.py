@@ -49,7 +49,18 @@ async def _send_question(message: types.Message, state: FSMContext):
             # single row of buttons
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[buttons])
             logger.info(f"Scale keyboard created with values: {scale_values}")
-        elif (question.type == "radio" or question.type == "checkbox") and question.options:
+        elif question.type == "checkbox" and question.options:
+            logger.info("Creating checkbox keyboard")
+            temp_selections = data.get("temp_selections", {})
+            current_q_selections = set(temp_selections.get(str(current_question_index), []))
+
+            rows = []
+            for opt in question.options:
+                text = f"✅ {opt}" if opt in current_q_selections else opt
+                rows.append([types.InlineKeyboardButton(text=text, callback_data=f"cbox_tgl:{current_question_index}:{opt}")])
+            rows.append([types.InlineKeyboardButton(text="➡️ Далее", callback_data=f"cbox_next:{current_question_index}")])
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
+        elif question.type == "radio" and question.options:
             logger.info("Creating radio keyboard")
             rows = [
                 [types.InlineKeyboardButton(text=opt, callback_data=f"ans:{current_question_index}:{opt}")]
@@ -170,6 +181,100 @@ async def start_survey(
     await _send_question(callback.message, state)
     await callback.answer()
 
+@router.callback_query(SurveyStates.in_survey, F.data.startswith("cbox_tgl:"))
+async def toggle_checkbox_option(callback: types.CallbackQuery, state: FSMContext):
+    """Handles toggling a checkbox option."""
+    try:
+        _, q_index_str, option = callback.data.split(":", 2)
+        q_index = int(q_index_str)
+    except ValueError:
+        await callback.answer("Неверный формат ответа", show_alert=True)
+        return
+
+    data = await state.get_data()
+    raw_questions = data.get("questions", [])
+    questions: List[Question] = [q if isinstance(q, Question) else Question.model_validate(q) for q in raw_questions]
+    current_question_index = data.get("current_question_index", 0)
+
+    if q_index != current_question_index:
+        await callback.answer()
+        return
+
+    question = questions[q_index]
+    temp_selections = data.get("temp_selections", {})
+    current_q_selections = set(temp_selections.get(str(q_index), []))
+
+    if option in current_q_selections:
+        current_q_selections.remove(option)
+    else:
+        current_q_selections.add(option)
+
+    temp_selections[str(q_index)] = list(current_q_selections)
+    await state.update_data(temp_selections=temp_selections)
+
+    # Re-build and edit the keyboard
+    rows = []
+    for opt in question.options:
+        text = f"✅ {opt}" if opt in current_q_selections else opt
+        rows.append([types.InlineKeyboardButton(text=text, callback_data=f"cbox_tgl:{q_index}:{opt}")])
+    rows.append([types.InlineKeyboardButton(text="➡️ Далее", callback_data=f"cbox_next:{q_index}")])
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
+
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(SurveyStates.in_survey, F.data.startswith("cbox_next:"))
+async def confirm_checkbox_selection(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+    bot: Bot,
+):
+    """Handles confirming checkbox selection and moving to the next question."""
+    _, q_index_str = callback.data.split(":", 1)
+    q_index = int(q_index_str)
+
+    data = await state.get_data()
+    current_question_index = data.get("current_question_index", 0)
+
+    if q_index != current_question_index:
+        await callback.answer()
+        return
+
+    raw_questions = data.get("questions", [])
+    questions: List[Question] = [q if isinstance(q, Question) else Question.model_validate(q) for q in raw_questions]
+    question = questions[q_index]
+
+    temp_selections = data.get("temp_selections", {})
+    current_q_selections = set(temp_selections.get(str(q_index), []))
+
+    # Join selected options into a single string for the answer
+    answer_string = ", ".join(sorted(list(current_q_selections)))
+
+    answers = data.get("answers", [])
+    answers.append({"question_id": question.id, "answer": answer_string})
+
+    # Clean up temp selections for this question
+    if str(q_index) in temp_selections:
+        del temp_selections[str(q_index)]
+
+    next_question_index = current_question_index + 1
+    await state.update_data(
+        answers=answers,
+        temp_selections=temp_selections,
+        current_question_index=next_question_index,
+    )
+
+    # Move to the next question or complete the survey
+    if next_question_index < len(questions):
+        await _send_question(callback.message, state)
+    else:
+        # This logic is duplicated from other handlers. Refactor candidate.
+        await _complete_survey(callback.message, state, cycle_service, employee_service, bot)
+    
+    await callback.answer()
 
 @router.callback_query(SurveyStates.in_survey, F.data.startswith("ans:"))
 async def process_answer_cb(
@@ -199,6 +304,14 @@ async def process_answer_cb(
 
     answers = data.get("answers", [])
     current_question = questions[current_question_index]
+
+    # This handler is for single-choice questions (scale, radio)
+    # Checkbox logic is handled by cbox_* handlers
+    if current_question.type == "checkbox":
+        logger.warning("Received 'ans:' callback for a checkbox question. Ignoring.")
+        await callback.answer("Для этого вопроса используйте множественный выбор и кнопку 'Далее'.")
+        return
+
     answers.append({"question_id": current_question.id, "answer": answer_val})
 
     # move on
@@ -208,32 +321,7 @@ async def process_answer_cb(
     if next_question_index < len(questions):
         await _send_question(callback.message, state)
     else:
-        # same completion logic as text handler
-        cycle_id = data.get("cycle_id")
-        respondent_id = data.get("respondent_id")
-        respondent = employee_service.find_by_telegram_id(callback.from_user.id) or employee_service.find_by_id(respondent_id)
-        if not respondent:
-            logger.error("Failed to save answers: respondent not found")
-            await callback.message.answer("Ошибка при сохранении ответов. Обратитесь к администратору.")
-            await state.clear()
-            await callback.answer()
-            return
-        answers_dict = {item["question_id"]: item["answer"] for item in answers}
-        try:
-            await cycle_service.save_answers(
-                cycle_id=cycle_id,
-                respondent_id=respondent_id,
-                answers=answers_dict,
-                employee_service=employee_service,
-                bot=bot,
-            )
-            await callback.message.answer("✨ Спасибо за ваши ответы! ✨")
-        except Exception as e:
-            logger.error(f"Failed to save answers: {e}")
-            await callback.message.answer("Ошибка при сохранении ответов.")
-        finally:
-            await state.clear()
-    await callback.answer()
+         await _complete_survey(callback.message, state, cycle_service, employee_service, bot)
 
 
 @router.message(SurveyStates.in_survey)
@@ -276,38 +364,41 @@ async def process_answer(
         # Send the next question
         await _send_question(message, state)
     else:
-        # All questions answered, complete the survey
-        cycle_id = data.get("cycle_id")
-        respondent_id = data.get("respondent_id")
-        
-        # We need the full employee object to save answers correctly
-        respondent = employee_service.find_by_telegram_id(message.from_user.id)
-        if not respondent:
-            logger.warning(f"Could not find respondent by telegram_id {message.from_user.id}, falling back to respondent_id {respondent_id}")
-            respondent = employee_service.find_by_id(respondent_id)
+       await _complete_survey(message, state, cycle_service, employee_service, bot)
 
-        if not respondent:
-            logger.error(f"Failed to save answers for cycle {cycle_id}: could not find respondent with id {respondent_id}.")
-            await message.answer("Произошла критическая ошибка: не удалось найти ваш профиль для сохранения ответов. Обратитесь к администратору.")
-            await state.clear()
-            return
+async def _complete_survey(
+    message: types.Message,
+    state: FSMContext,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+    bot: Bot,
+):
+    """Helper function to finalize the survey, save answers, and clear state."""
+    data = await state.get_data()
+    cycle_id = data.get("cycle_id")
+    respondent_id = data.get("respondent_id")
+    answers = data.get("answers", [])
+    
+    # We need the full employee object to save answers correctly
+    respondent = employee_service.find_by_telegram_id(message.chat.id) or employee_service.find_by_id(respondent_id)
+    if not respondent:
+        logger.error(f"Failed to save answers for cycle {cycle_id}: could not find respondent with id {respondent_id}.")
+        await message.answer("Произошла критическая ошибка: не удалось найти ваш профиль для сохранения ответов. Обратитесь к администратору.")
+        await state.clear()
+        return
 
-        logger.info(f"Completing survey for cycle {cycle_id} by respondent {respondent.id}.")
-
-        # Convert list of answers to a dictionary for saving
-        answers_dict = {item["question_id"]: item["answer"] for item in answers}
-
-        try:
-            await cycle_service.save_answers(
-                cycle_id=cycle_id,
-                respondent_id=respondent_id,
-                answers=answers_dict,
-                employee_service=employee_service,
-                bot=bot,
-            )
-            await message.answer("✨ Спасибо за ваши ответы! Вы помогли коллеге стать лучше. ✨")
-        except Exception as e:
-            logger.error(f"Failed to save answers for cycle {cycle_id} for respondent {respondent.id}: {e}", exc_info=True)
-            await message.answer("Произошла ошибка при сохранении ваших ответов. Пожалуйста, свяжитесь с администратором.")
-        finally:
-            await state.clear()
+    answers_dict = {item["question_id"]: item["answer"] for item in answers}
+    try:
+        await cycle_service.save_answers(
+            cycle_id=cycle_id,
+            respondent_id=respondent_id,
+            answers=answers_dict,
+            employee_service=employee_service,
+            bot=bot,
+        )
+        await message.answer("✨ Спасибо за ваши ответы! Вы помогли коллеге стать лучше. ✨")
+    except Exception as e:
+        logger.error(f"Failed to save answers for cycle {cycle_id} for respondent {respondent.id}: {e}", exc_info=True)
+        await message.answer("Произошла ошибка при сохранении ваших ответов. Пожалуйста, свяжитесь с администратором.")
+    finally:
+        await state.clear()

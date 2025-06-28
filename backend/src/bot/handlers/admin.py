@@ -12,6 +12,7 @@ from ...services.employee_service import EmployeeService
 from ...services.report_service import ReportService
 
 from ..keyboards.admin_keyboards import get_confirmation_keyboard
+from ..keyboards.cycle_list_keyboard import get_cycle_list_keyboard
 from ..middlewares.auth import AdminAuthMiddleware
 from ..states.cycle_creation import CycleCreationFSM
 
@@ -260,6 +261,22 @@ async def confirm_creation(
         await callback.answer()
 
 
+@router.message(Command("status"))
+async def cmd_status(
+    message: types.Message,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+):
+    """Send a list of all cycles with buttons to view status."""
+    cycles = await cycle_service.get_all_cycles()
+    if not cycles:
+        await message.answer("Циклы не найдены.")
+        return
+
+    keyboard = get_cycle_list_keyboard(cycles, employee_service)
+    await message.answer("Выберите цикл:", reply_markup=keyboard)
+
+
 @router.message(Command("finish"))
 async def cmd_finish_cycle(
     message: types.Message,
@@ -320,3 +337,38 @@ async def finish_cycle_from_notification(
     else:
         await callback.message.edit_text(f"ℹ️ Цикл <code>{cycle.id}</code> уже был завершен.", reply_markup=None)
         await callback.answer("Цикл уже был закрыт.", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith("cycle_status:"))
+async def show_cycle_status(
+    callback: CallbackQuery,
+    cycle_service: CycleService,
+    employee_service: EmployeeService,
+    report_service: ReportService,
+):
+    """Show progress for active cycles or generate report for finished ones."""
+    cycle_id = callback.data.split(":")[1]
+    cycle = await cycle_service.get_cycle_by_id(cycle_id)
+    if not cycle:
+        await callback.answer("Цикл не найден.", show_alert=True)
+        return
+
+    if cycle.status == "active":
+        completed = sum(1 for r in cycle.respondents.values() if r.status == "completed")
+        total = len(cycle.respondents)
+        percent = int((completed / total) * 100) if total else 0
+        target = employee_service.find_by_id(cycle.target_employee_id)
+        text = (
+            f"<b>{target.full_name if target else cycle.target_employee_id}</b> (<code>{cycle.id}</code>)\n"
+            f"Дедлайн: {cycle.deadline.strftime('%d.%m.%Y')}\n"
+            f"Прогресс: {completed}/{total} ({percent}%)"
+        )
+        await callback.message.edit_text(text)
+        await callback.answer()
+    else:
+        await callback.message.edit_text(f"Генерация отчета для цикла <code>{cycle.id}</code>...")
+        report = await report_service.generate_report_for_cycle(cycle)
+        cycle.status = "reported"
+        await cycle_service.save_cycle(cycle)
+        await callback.message.edit_text(report, disable_web_page_preview=True)
+        await callback.answer()

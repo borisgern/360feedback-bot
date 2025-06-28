@@ -312,7 +312,7 @@ async def cmd_finish_cycle(
 
     if was_closed:
         report = await report_service.generate_report_for_cycle(cycle)
-        await message.answer(report, disable_web_page_preview=True)
+        await message.answer(report, disable_web_page_preview=True, parse_mode="Markdown")
     else:
         await message.answer(f"⚠️ Не удалось завершить цикл <code>{cycle_id}</code>. Возможно, он уже был закрыт другим администратором.")
 
@@ -339,7 +339,7 @@ async def finish_cycle_from_notification(
     if was_closed:
         await callback.answer()  # Acknowledge query to prevent timeout
         report = await report_service.generate_report_for_cycle(cycle)
-        await bot.send_message(callback.from_user.id, report, disable_web_page_preview=True)
+        await bot.send_message(callback.from_user.id, report, disable_web_page_preview=True, parse_mode="Markdown")
     else:
         await callback.message.edit_text(f"ℹ️ Цикл <code>{cycle.id}</code> уже был завершен.", reply_markup=None)
         await callback.answer("Цикл уже был закрыт.", show_alert=True)
@@ -376,4 +376,4 @@ async def show_cycle_status(
         report = await report_service.generate_report_for_cycle(cycle)
         cycle.status = "reported"
         await cycle_service.save_cycle(cycle)
-        await callback.message.edit_text(report, disable_web_page_preview=True)
+        await callback.message.edit_text(report, disable_web_page_preview=True, parse_mode="Markdown")

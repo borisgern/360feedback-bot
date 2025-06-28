@@ -132,8 +132,8 @@ class ReportService:
         """Generates a full summary report for a completed feedback cycle."""
         target_employee_name = await self._get_employee_full_name(cycle.target_employee_id)
         report_header = (
-            f"<b>Отчет по циклу 360° для {target_employee_name}</b>\n"
-            f"ID цикла: <code>{cycle.id}</code>\n"
+            f"**Отчет по циклу 360° для {target_employee_name}**\n"
+            f"ID цикла: `{cycle.id}`\n"
         )
 
         all_answers = await self._get_answers_for_cycle(cycle)
@@ -155,7 +155,7 @@ class ReportService:
             ai_summary = await self._summarize_with_ai(all_feedback_texts, target_employee_name)
         except RetryError as e:
             logger.error(f"Failed to get AI summary after multiple retries: {e}")
-            ai_summary = "<i>Не удалось сгенерировать AI-отчет из-за ошибки API.</i>"
+            ai_summary = "_Не удалось сгенерировать AI-отчет из-за ошибки API._"
 
         # TODO: Add calculation of average scores for competency questions
         # TODO: Add list of non-respondents

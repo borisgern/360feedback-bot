@@ -154,14 +154,20 @@ async def select_all_respondents(callback: CallbackQuery, state: FSMContext, emp
 
 @router.callback_query(lambda c: c.data.startswith("resp_deselect_all:"), CycleCreationFSM.waiting_for_respondents)
 async def deselect_all_respondents(callback: CallbackQuery, state: FSMContext, employee_service: EmployeeService):
+    """Deselects all respondents and updates the keyboard."""
     page = int(callback.data.split(":")[1])
+    data = await state.get_data()
+
+    if not data.get("respondents"):
+        await callback.answer("Выбор уже снят со всех респондентов.", show_alert=True)
+        return
+
     await state.update_data(respondents=[])
 
-    data = await state.get_data()
     target_employee_id = data.get("target_employee_id")
     target_employee = employee_service.find_by_id(target_employee_id)
     all_other_employees = [emp for emp in employee_service._employees if emp.id != target_employee.id]
-    
+
     from ..keyboards.respondent_select_keyboard import get_respondent_select_keyboard
     await callback.message.edit_reply_markup(
         reply_markup=get_respondent_select_keyboard(all_other_employees, set(), page=page)

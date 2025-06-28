@@ -25,7 +25,7 @@ async def _send_question(message: types.Message, state: FSMContext):
     raw_questions = data.get("questions", [])
     questions: List[Question] = [q if isinstance(q, Question) else Question.model_validate(q) for q in raw_questions]
     current_question_index: int = data.get("current_question_index", 0)
-    target_name: str = data.get("target_employee_name", "коллеги")
+    target_name: str = data.get("target_employee_name", "робот")
 
     if current_question_index < len(questions):
         question = questions[current_question_index]
@@ -52,15 +52,25 @@ async def _send_question(message: types.Message, state: FSMContext):
             if question.options and question.options[0]:
                 # The bot is initialized with HTML parse mode
                 question_text_to_send += f"\n\n<i>{question.options[0]}</i>"
-            # We assume scale 0-3. The button values are not from options.
+
             scale_values = ["0", "1", "2", "3"]
+            temp_values = data.get("temp_values", {})
+            selected_val = temp_values.get(str(current_question_index))
+
             buttons = [
                 types.InlineKeyboardButton(
-                    text=v, callback_data=f"ans:{current_question_index}:{v}"
+                    text=(f"✅ {v}" if v == selected_val else v),
+                    callback_data=f"select:{current_question_index}:{v}"
                 )
                 for v in scale_values
             ]
             rows = [buttons]
+            if selected_val is not None:
+                rows.append([
+                    types.InlineKeyboardButton(
+                        text="Оценить", callback_data=f"confirm:{current_question_index}"
+                    )
+                ])
             if skip_row:
                 rows.append(skip_row)
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
@@ -84,10 +94,24 @@ async def _send_question(message: types.Message, state: FSMContext):
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
         elif question.type == "radio" and question.options:
             logger.info("Creating radio keyboard")
+            temp_values = data.get("temp_values", {})
+            selected_val = temp_values.get(str(current_question_index))
+
             rows = [
-                [types.InlineKeyboardButton(text=opt, callback_data=f"ans:{current_question_index}:{opt}")]
+                [
+                    types.InlineKeyboardButton(
+                        text=(f"✅ {opt}" if opt == selected_val else opt),
+                        callback_data=f"select:{current_question_index}:{opt}"
+                    )
+                ]
                 for opt in question.options
             ]
+            if selected_val is not None:
+                rows.append([
+                    types.InlineKeyboardButton(
+                        text="Оценить", callback_data=f"confirm:{current_question_index}"
+                    )
+                ])
             if skip_row:
                 rows.append(skip_row)
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
@@ -346,17 +370,78 @@ async def skip_optional_question(
 
     await callback.answer()
 
-@router.callback_query(SurveyStates.in_survey, F.data.startswith("ans:"))
-async def process_answer_cb(
+
+@router.callback_query(SurveyStates.in_survey, F.data.startswith("select:"))
+async def select_single_choice(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+):
+    """Stores a temporary answer selection for a single-choice question."""
+    try:
+        _, q_index_str, value = callback.data.split(":", 2)
+        q_index = int(q_index_str)
+    except ValueError:
+        await callback.answer("Неверный формат ответа", show_alert=True)
+        return
+
+    data = await state.get_data()
+    raw_questions = data.get("questions", [])
+    questions: List[Question] = [q if isinstance(q, Question) else Question.model_validate(q) for q in raw_questions]
+    current_question_index = data.get("current_question_index", 0)
+
+    if q_index != current_question_index:
+        await callback.answer()
+        return
+
+    question = questions[q_index]
+    temp_values = data.get("temp_values", {})
+    temp_values[str(q_index)] = value
+    await state.update_data(temp_values=temp_values)
+
+    skip_row = None
+    if not question.required:
+        skip_row = [types.InlineKeyboardButton(text="Пропустить", callback_data=f"skip:{q_index}")]
+
+    if question.type == "scale" or question.type.lower().startswith("scale"):
+        scale_values = ["0", "1", "2", "3"]
+        buttons = [
+            types.InlineKeyboardButton(
+                text=(f"✅ {v}" if v == value else v),
+                callback_data=f"select:{q_index}:{v}"
+            )
+            for v in scale_values
+        ]
+        rows = [buttons]
+    else:
+        rows = [
+            [
+                types.InlineKeyboardButton(
+                    text=(f"✅ {opt}" if opt == value else opt),
+                    callback_data=f"select:{q_index}:{opt}"
+                )
+            ]
+            for opt in question.options
+        ]
+
+    rows.append([types.InlineKeyboardButton(text="Оценить", callback_data=f"confirm:{q_index}")])
+    if skip_row:
+        rows.append(skip_row)
+
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=rows)
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+    await callback.answer()
+
+@router.callback_query(SurveyStates.in_survey, F.data.startswith("confirm:"))
+async def confirm_single_choice(
     callback: types.CallbackQuery,
     state: FSMContext,
     cycle_service: CycleService,
     employee_service: EmployeeService,
     bot: Bot,
 ):
-    """Handles answer coming from inline keyboard buttons."""
+    """Confirms the selected answer for a single-choice question."""
     try:
-        _, q_index_str, answer_val = callback.data.split(":", 2)
+        _, q_index_str = callback.data.split(":", 1)
         q_index = int(q_index_str)
     except ValueError:
         await callback.answer("Неверный формат ответа", show_alert=True)
@@ -372,21 +457,25 @@ async def process_answer_cb(
         await callback.answer()
         return
 
+    temp_values = data.get("temp_values", {})
+    selected_val = temp_values.get(str(q_index))
+    if selected_val is None:
+        await callback.answer("Сначала выберите вариант", show_alert=True)
+        return
+
     answers = data.get("answers", [])
     current_question = questions[current_question_index]
 
-    # This handler is for single-choice questions (scale, radio)
-    # Checkbox logic is handled by cbox_* handlers
-    if current_question.type == "checkbox":
-        logger.warning("Received 'ans:' callback for a checkbox question. Ignoring.")
-        await callback.answer("Для этого вопроса используйте множественный выбор и кнопку 'Далее'.")
-        return
-
-    answers.append({"question_id": current_question.id, "answer": answer_val})
+    answers.append({"question_id": current_question.id, "answer": selected_val})
 
     # move on
     next_question_index = current_question_index + 1
-    await state.update_data(answers=answers, current_question_index=next_question_index)
+    temp_values.pop(str(q_index), None)
+    await state.update_data(
+        answers=answers,
+        current_question_index=next_question_index,
+        temp_values=temp_values,
+    )
 
     if next_question_index < len(questions):
         await _send_question(callback.message, state)
@@ -466,7 +555,7 @@ async def _complete_survey(
             employee_service=employee_service,
             bot=bot,
         )
-        await message.answer("✨ Спасибо за ваши ответы! Вы помогли коллеге стать лучше. ✨")
+        await message.answer("✨ Спасибо за ваши ответы! Вы помогли робот стать лучше. ✨")
     except Exception as e:
         logger.error(f"Failed to save answers for cycle {cycle_id} for respondent {respondent.id}: {e}", exc_info=True)
         await message.answer("Произошла ошибка при сохранении ваших ответов. Пожалуйста, свяжитесь с администратором.")

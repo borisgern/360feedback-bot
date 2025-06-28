@@ -10,6 +10,14 @@ def get_cycle_list_keyboard(cycles: List[FeedbackCycle], employee_service: Emplo
     buttons = []
     for cycle in sorted(cycles, key=lambda c: c.created_at, reverse=True):
         target = employee_service.find_by_id(cycle.target_employee_id)
-        text = target.full_name if target else cycle.id
-        buttons.append([InlineKeyboardButton(text=text, callback_data=f"cycle_status:{cycle.id}")])
+        if target:
+            sheet_title = f"{cycle.created_at.strftime('%Y%m%d_%H%M%S')}_{target.full_name}"
+        else:
+            sheet_title = cycle.id
+        buttons.append([
+            InlineKeyboardButton(
+                text=sheet_title,
+                callback_data=f"cycle_status:{cycle.id}",
+            )
+        ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

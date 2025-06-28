@@ -167,6 +167,7 @@ class ReportService:
 
         ai_summary = self._normalize_markdown(ai_summary)
 
+
         # TODO: Add calculation of average scores for competency questions
         # TODO: Add list of non-respondents
 

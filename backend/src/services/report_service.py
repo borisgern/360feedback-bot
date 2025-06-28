@@ -64,8 +64,8 @@ class ReportService:
         return target_employee.full_name
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def _summarize_with_ai(self, texts: List[str], topic: str, target_name: str) -> str:
-        """Generates a summary for a list of texts using the OpenAI API."""
+    async def _summarize_with_ai(self, texts: List[str], target_name: str) -> str:
+        """Generates a full report based on a list of texts using the OpenAI API."""
         if not texts:
             return "Ответы не найдены."
 
@@ -75,18 +75,48 @@ class ReportService:
 
         content = "\n".join(f"- {text}" for text in filtered_texts)
         prompt = (
-            f"Проанализируй следующие анонимные отзывы о сотруднике по имени {target_name} на тему '{topic}'. "
-            f"Сделай краткое, структурированное саммари (3-5 ключевых тезисов в виде буллет-поинтов). "
-            f"Сохраняй нейтральный и объективный тон. Не делай предположений, основывайся только на предоставленном тексте. "
-            f"Ответ дай на русском языке.\n\n"
-            f"Отзывы:\n{content}"
+            f"ты — hr-аналитик dodo brands.\n"
+            f"задача: на основе анонимных 360-ответов сформировать персональный отчёт для сотрудника {target_name}.\n\n"
+            f"контекст\n"
+            f"1. тема опроса: «сильные стороны и зоны роста».\n"
+            f"2. ниже вставлены сыровые ответы коллег.\n"
+            f"3. используй **точно такую же** структуру, как в примере «sample report» (смотри дальше).\n\n"
+            f"ограничения\n"
+            f"- не указывай имена или номера респондентов;\n"
+            f"- не придумывай факты сверх текста;\n"
+            f"- стиль: дружелюбно, без воды, строчные буквы;\n"
+            f"- общий объём готового отчёта ≤ 400 слов;\n"
+            f"- выведи результат в markdown-блоке.\n\n"
+            f"---\n"
+            f"### sample report (ориентируйся на порядок и заголовки)\n\n"
+            f"**краткое summary**\n"
+            f"коллеги ценят, что анна быстро находит решения, поддерживает команду и держит высокий темп. при этом ожидают больше проактивности в делегировании задач и стратегическом видении.\n\n"
+            f"**сильные стороны**\n"
+            f"- 🚀 скорость принятия решений и запусков\n"
+            f"- 🤝 открытость к помощи и обратной связи\n"
+            f"- 🎯 фокус на результат, а не процесс\n\n"
+            f"**зоны роста**\n"
+            f"- развивай регулярное делегирование, чтобы разгрузить себя\n"
+            f"- развивай стратегическое планирование на 3–6 мес., а не «здесь и сейчас»\n"
+            f"- развивай вовлечение команды в генерацию идей\n\n"
+            f"**цитаты коллег**\n"
+            f"> «если надо “пожар” — анна первая на месте»\n"
+            f"> «иногда берёт слишком много на себя»\n"
+            f"> «клёво, что всегда обратная связь по делу»\n\n"
+            f"**план действий 30-60-90**\n"
+            f"- **30 дней:** настроить еженедельное делегирование приоритетных задач\n"
+            f"- **60 дней:** провести воркшоп с командой и сформировать roadmap на Q3\n"
+            f"- **90 дней:** отследить прогресс по roadmap и скорректировать роли\n\n"
+            f"---\n"
+            f"### отзывы\n"
+            f"{content}"
         )
 
         response = await self._openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=500,
+            max_tokens=800,
         )
         return response.choices[0].message.content.strip()
 
@@ -111,25 +141,17 @@ class ReportService:
         strengths_texts = [str(ans[strengths_col]) for ans in all_answers if strengths_col in ans and ans[strengths_col]]
         weaknesses_texts = [str(ans[weaknesses_col]) for ans in all_answers if weaknesses_col in ans and ans[weaknesses_col]]
 
-        try:
-            strengths_summary = await self._summarize_with_ai(strengths_texts, "Сильные стороны", target_employee_name)
-        except RetryError as e:
-            logger.error(f"Failed to get AI summary for strengths after multiple retries: {e}")
-            strengths_summary = "<i>Не удалось сгенерировать саммари по сильным сторонам из-за ошибки API.</i>"
+        all_feedback_texts = strengths_texts + weaknesses_texts
 
         try:
-            weaknesses_summary = await self._summarize_with_ai(weaknesses_texts, "Точки роста и блокеры", target_employee_name)
+            ai_summary = await self._summarize_with_ai(all_feedback_texts, target_employee_name)
         except RetryError as e:
-            logger.error(f"Failed to get AI summary for weaknesses after multiple retries: {e}")
-            weaknesses_summary = "<i>Не удалось сгенерировать саммари по точкам роста из-за ошибки API.</i>"
+            logger.error(f"Failed to get AI summary after multiple retries: {e}")
+            ai_summary = "<i>Не удалось сгенерировать AI-отчет из-за ошибки API.</i>"
 
         # TODO: Add calculation of average scores for competency questions
         # TODO: Add list of non-respondents
 
-        report_body = (
-            f"\n<b>Резюме на основе AI</b>\n\n"
-            f"<b>Сильные стороны:</b>\n{strengths_summary}\n\n"
-            f"<b>Точки роста и блокеры:</b>\n{weaknesses_summary}\n"
-        )
+        report_body = f"\n{ai_summary}\n"
 
         return report_header + report_body

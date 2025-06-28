@@ -347,6 +347,7 @@ async def show_cycle_status(
     report_service: ReportService,
 ):
     """Show progress for active cycles or generate report for finished ones."""
+    await callback.answer()
     cycle_id = callback.data.split(":")[1]
     cycle = await cycle_service.get_cycle_by_id(cycle_id)
     if not cycle:
@@ -364,11 +365,9 @@ async def show_cycle_status(
             f"Прогресс: {completed}/{total} ({percent}%)"
         )
         await callback.message.edit_text(text)
-        await callback.answer()
     else:
         await callback.message.edit_text(f"Генерация отчета для цикла <code>{cycle.id}</code>...")
         report = await report_service.generate_report_for_cycle(cycle)
         cycle.status = "reported"
         await cycle_service.save_cycle(cycle)
         await callback.message.edit_text(report, disable_web_page_preview=True)
-        await callback.answer()

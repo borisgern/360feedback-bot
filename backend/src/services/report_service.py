@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 
 import openai
 from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
+import re
 
 from ..config import Settings
 from ..storage.models import FeedbackCycle
@@ -128,13 +129,18 @@ class ReportService:
         )
         return response.choices[0].message.content.strip()
 
+    def _normalize_markdown(self, text: str) -> str:
+        """Converts double-asterisk bold to single for Telegram Markdown."""
+        return re.sub(r"\*\*(.+?)\*\*", r"*\1*", text, flags=re.DOTALL)
+
     async def generate_report_for_cycle(self, cycle: FeedbackCycle) -> str:
         """Generates a full summary report for a completed feedback cycle."""
         target_employee_name = await self._get_employee_full_name(cycle.target_employee_id)
         report_header = (
-            f"**Отчет по циклу 360° для {target_employee_name}**\n"
+            f"*Отчет по циклу 360° для {target_employee_name}*\n"
             f"ID цикла: `{cycle.id}`\n"
         )
+        report_header = self._normalize_markdown(report_header)
 
         all_answers = await self._get_answers_for_cycle(cycle)
         if not all_answers:
@@ -152,10 +158,15 @@ class ReportService:
         all_feedback_texts = strengths_texts + weaknesses_texts
 
         try:
-            ai_summary = await self._summarize_with_ai(all_feedback_texts, target_employee_name)
+            ai_summary = await self._summarize_with_ai(
+                all_feedback_texts, target_employee_name
+            )
         except RetryError as e:
             logger.error(f"Failed to get AI summary after multiple retries: {e}")
             ai_summary = "_Не удалось сгенерировать AI-отчет из-за ошибки API._"
+
+        ai_summary = self._normalize_markdown(ai_summary)
+
 
         # TODO: Add calculation of average scores for competency questions
         # TODO: Add list of non-respondents

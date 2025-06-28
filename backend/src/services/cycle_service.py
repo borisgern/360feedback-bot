@@ -76,6 +76,20 @@ class CycleService:
             logger.warning(f"Cycle with id {cycle_id} not found in Redis.")
         return cycle
 
+    async def get_all_cycles(self) -> list[FeedbackCycle]:
+        """Returns all cycles stored in Redis."""
+        keys = await self._redis.get_keys_by_pattern("cycle:*")
+        cycles = []
+        for key in keys:
+            cycle = await self._redis.get_model(key, FeedbackCycle)
+            if cycle:
+                cycles.append(cycle)
+        return cycles
+
+    async def save_cycle(self, cycle: FeedbackCycle) -> None:
+        """Persists the updated cycle back to Redis."""
+        await self._redis.set_model(f"cycle:{cycle.id}", cycle)
+
     async def send_invitation(
         self,
         bot: Bot,

@@ -36,18 +36,32 @@ class ReportService:
 
     async def _get_answers_for_cycle(self, cycle: FeedbackCycle) -> List[Dict[str, Any]]:
         """Fetches all answer records for a given cycle from its Google Sheet."""
-        target_employee = self._employees.find_by_id(cycle.target_employee_id)
-        if not target_employee:
-            logger.error(f"Cannot get answers: target employee {cycle.target_employee_id} not found.")
-            return []
-        
-        sheet_title = f"{cycle.created_at.strftime('%Y-%m-%d')}_{target_employee.full_name}"
+        sheet_title = cycle.sheet_title
+        if not sheet_title:
+            # Backward compatibility for old cycles without a stored sheet_title.
+            logger.warning(f"Cycle {cycle.id} is missing a sheet_title. Generating it based on old logic.")
+            target_employee = self._employees.find_by_id(cycle.target_employee_id)
+            if not target_employee:
+                logger.error(f"Cannot get answers: target employee {cycle.target_employee_id} not found.")
+                return []
+            
+            # This is the original logic from cycle_service.py
+            timestamp_part = '_'.join(cycle.id.split('_')[:2])
+            sheet_title = f"{timestamp_part}_{target_employee.full_name}"
+
         try:
             records = await self._g_sheets.get_all_records(sheet_title)
             return records
         except Exception as e:
             logger.error(f"Failed to get records from sheet '{sheet_title}': {e}")
             return []
+
+    async def _get_employee_full_name(self, employee_id: str) -> str:
+        target_employee = self._employees.find_by_id(employee_id)
+        if not target_employee:
+            logger.error(f"Cannot get employee for report: {employee_id} not found.")
+            return ""
+        return target_employee.full_name
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def _summarize_with_ai(self, texts: List[str], topic: str, target_name: str) -> str:
@@ -78,9 +92,9 @@ class ReportService:
 
     async def generate_report_for_cycle(self, cycle: FeedbackCycle) -> str:
         """Generates a full summary report for a completed feedback cycle."""
-        target_employee = self._employees.find_by_id(cycle.target_employee_id)
+        target_employee_name = await self._get_employee_full_name(cycle.target_employee_id)
         report_header = (
-            f"<b>Отчет по циклу 360° для {target_employee.full_name}</b>\n"
+            f"<b>Отчет по циклу 360° для {target_employee_name}</b>\n"
             f"ID цикла: <code>{cycle.id}</code>\n"
         )
 
@@ -98,13 +112,13 @@ class ReportService:
         weaknesses_texts = [str(ans[weaknesses_col]) for ans in all_answers if weaknesses_col in ans and ans[weaknesses_col]]
 
         try:
-            strengths_summary = await self._summarize_with_ai(strengths_texts, "Сильные стороны", target_employee.first_name)
+            strengths_summary = await self._summarize_with_ai(strengths_texts, "Сильные стороны", target_employee_name)
         except RetryError as e:
             logger.error(f"Failed to get AI summary for strengths after multiple retries: {e}")
             strengths_summary = "<i>Не удалось сгенерировать саммари по сильным сторонам из-за ошибки API.</i>"
 
         try:
-            weaknesses_summary = await self._summarize_with_ai(weaknesses_texts, "Точки роста и блокеры", target_employee.first_name)
+            weaknesses_summary = await self._summarize_with_ai(weaknesses_texts, "Точки роста и блокеры", target_employee_name)
         except RetryError as e:
             logger.error(f"Failed to get AI summary for weaknesses after multiple retries: {e}")
             weaknesses_summary = "<i>Не удалось сгенерировать саммари по точкам роста из-за ошибки API.</i>"

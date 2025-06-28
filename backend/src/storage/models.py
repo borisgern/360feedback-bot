@@ -57,6 +57,7 @@ class RespondentInfo(BaseModel):
 
 class FeedbackCycle(BaseModel):
     id: str
+    sheet_title: Optional[str] = None
     target_employee_id: str
     respondents: Dict[str, RespondentInfo]  # key: respondent_id
     deadline: date

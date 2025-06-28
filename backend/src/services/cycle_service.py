@@ -48,16 +48,17 @@ class CycleService:
             respondent_info = RespondentInfo(id=resp_id)
             respondents[resp_id] = respondent_info
 
+        sheet_title = f"{timestamp}_{target_employee.full_name}"
+
         cycle = FeedbackCycle(
             id=cycle_id,
+            sheet_title=sheet_title,
             target_employee_id=target_employee.id,
             respondents=respondents,
             deadline=deadline,
         )
 
         await self._redis.set_model(f"cycle:{cycle.id}", cycle)
-
-        sheet_title = f"{timestamp}_{target_employee.full_name}"
         questions = await self._questionnaire.get_questionnaire()
         if not questions:
             # This can happen if the Questions sheet is empty or validation fails.

@@ -15,6 +15,7 @@ from .services.google_sheets import GoogleSheetsService
 from .services.report_service import ReportService
 from .services.question_service import QuestionnaireService
 from .storage.redis_storage import RedisStorageService
+from .bot.commands import set_bot_commands
 
 
 async def main():
@@ -30,6 +31,9 @@ async def main():
     bot = Bot(
         token=settings.BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML")
     )
+
+    # Set bot commands in the menu
+    await set_bot_commands(bot)
 
     # Initialize Redis storage
     redis_client = Redis.from_url(settings.redis.dsn)
@@ -61,6 +65,8 @@ async def main():
     # Load initial data
     await employee_service.load_employees()
 
+    await set_bot_commands(bot)
+
     dp = Dispatcher(
         storage=fsm_storage,
         # Pass services to handlers
@@ -70,6 +76,7 @@ async def main():
         employee_service=employee_service,
         cycle_service=cycle_service,
         report_service=report_service,
+        bot=bot,
     )
 
     # Register routers

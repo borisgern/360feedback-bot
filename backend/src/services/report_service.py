@@ -121,7 +121,7 @@ class ReportService:
         )
 
         response = await self._openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4-turbo-preview",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=800,

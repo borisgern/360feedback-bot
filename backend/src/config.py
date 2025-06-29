@@ -1,6 +1,7 @@
+import json
 from typing import List
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class GoogleSettings(BaseSettings):
@@ -39,6 +40,17 @@ class Settings(BaseSettings):
     redis: RedisSettings = RedisSettings()
     google: GoogleSettings = GoogleSettings()
     openai: OpenAISettings = OpenAISettings()
+
+    @field_validator("ADMIN_TELEGRAM_IDS", mode="before")
+    @classmethod
+    def parse_admin_ids(cls, v: str | list) -> list[int]:
+        if isinstance(v, str):
+            # Handle JSON string "[1, 2]"
+            if v.startswith("[") and v.endswith("]"):
+                return json.loads(v)
+            # Handle comma-separated string "1,2"
+            return [int(i.strip()) for i in v.split(",")]
+        return v
 
 
 settings = Settings()

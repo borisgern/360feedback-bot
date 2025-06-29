@@ -555,7 +555,7 @@ async def _complete_survey(
             employee_service=employee_service,
             bot=bot,
         )
-        await message.answer("✨ Спасибо за ваши ответы! Вы помогли робот стать лучше. ✨")
+        await message.answer("✨ Спасибо за ваши ответы! Вы помогли роботу стать лучше. ✨")
     except Exception as e:
         logger.error(f"Failed to save answers for cycle {cycle_id} for respondent {respondent.id}: {e}", exc_info=True)
         await message.answer("Произошла ошибка при сохранении ваших ответов. Пожалуйста, свяжитесь с администратором.")
